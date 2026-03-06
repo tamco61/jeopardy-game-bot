@@ -1,0 +1,100 @@
+# Структура проекта «Своя Игра» (Clean Architecture MVP)
+
+Этот документ описывает текущее состояние проекта, реализованного по принципам **Clean Architecture** и **Domain-Driven Design (DDD)**.
+Главная идея архитектуры: бизнес-логика (ядро) изолирована от внешнего мира (фреймворки, БД, брокеры, Telegram API). Зависимости направлены снаружи внутрь.
+
+## Текущее состояние (MVP Гонки на реакцию)
+
+На данный момент реализован и протестирован **самый сложный механизм бизнес-логики: конечный автомат (FSM) игровой комнаты и атомарная "гонка нажатий"** за право отвечать на вопрос. 
+
+Вся логика гонки работает корректно, потокобезопасно и распределённо с использованием [Redis](file:///d:/Education/jeopardy-game-bot/src/infrastructure/cache/redis_state_repo.py#20-162) `SETNX` блокировок.
+
+## Карта слоёв проекта
+
+```mermaid
+graph TD
+    subgraph Presentation ["Presentation Layer (Внешний интерфейс)"]
+        A[src/main.py <br> Временный Long Polling]
+        B[src/presentation/api/telegram_router.py <br> Будущий роутер]
+    end
+
+    subgraph Infrastructure ["Infrastructure Layer (БД, Кеш, API)"]
+        C[src/infrastructure/cache/redis_state_repo.py <br> RedisStateRepository]
+        D[src/infrastructure/database/postgres_game_repo.py <br> PostgresGameRepository]
+        E[src/infrastructure/telegram/http_client.py <br> Aiohttp Client]
+    end
+
+    subgraph Application ["Application Layer (Use Cases)"]
+        F[src/application/interfaces/ <br> Порты: IStateRepository, IGameRepository]
+        G[src/application/use_cases/press_button.py <br> PressButtonUseCase]
+    end
+
+    subgraph Domain ["Domain Layer (Бизнес-ядро)"]
+        H[src/domain/entities/room.py <br> Room FSM]
+        I[src/domain/entities/player.py <br> Player]
+        J[src/domain/entities/question.py <br> Question]
+    end
+
+    %% Зависимости (снаружи вовнутрь)
+    A --> G
+    B --> G
+    A --> C
+    A --> H
+    C -. Реализует .-> F
+    D -. Реализует .-> F
+    G --> F
+    G --> H
+    H --> I
+    H --> J
+```
+
+---
+
+### 1. `src/domain/` (Самое ядро, бизнес-логика)
+
+Здесь живут чистые Python-классы (сущности) без сторонних библиотек. Они не делают запросов в сеть и не ходят в базу. Главное: **никто внутри `domain` не импортирует ничего из других папок**.
+
+*   `entities/room.py` — Сердце игры. Класс `Room` (Комната) реализует **Конечный Автомат (FSM)**. Описаны фазы игры (`LOBBY`, `READING`, `ANSWERING`, `BOARD_VIEW` и т.д.) и правила перехода. Например, нельзя нажать кнопку до прочтения вопроса.
+*   `entities/player.py` — Игрок (ID, имя, очки, статус блокировки на вопрос).
+*   `entities/question.py` — Вопрос (текст, ответ, стоимость, тип: обычный, кот в мешке, аукцион).
+*   `exception/` — Кастомные ошибки домена (например, `InvalidTransitionError` или `PlayerBlockedError`).
+
+### 2. `src/application/` (Сценарии использования / Use Cases)
+
+Связывает ядро (Domain) с внешним миром через **интерфейсы-контракты** (порты). В этом слое оркестрируются бизнес-процессы, но нет реального импорта Redis или SQL.
+
+*   `interfaces/state_repository.py` (`IStateRepository`) — Интерфейс для сохранения/загрузки FSM-состояния комнаты, а также захвата блокировки (гонки) при нажатии кнопки.
+*   `interfaces/game_repository.py` (`IGameRepository`) — Интерфейс для БД (сохранение результатов, получение случайных вопросов).
+*   **`use_cases/press_button.py` (`PressButtonUseCase`)** — **[РЕАЛИЗОВАНО]** Сценарий "Нажатие кнопки". Пытается атомарно захватить кнопку через `IStateRepository`, загружает комнату, вызывает `room.press_button()` и сохраняет комнату.
+*   `use_cases/start_game.py` и `submit_answer.py` — **[ЗАГЛУШКИ]** Запланированные сценарии старта игры и валидации текстового ответа от игрока.
+
+### 3. `src/infrastructure/` (Внешние сервисы)
+
+Реализация интерфейсов из слоя `Application`. Этот слой уже знает про Redis, Postgres, API Telegram.
+
+*   **`cache/redis_state_repo.py` (`RedisStateRepository`)** — **[РЕАЛИЗОВАНО]** Реализация `IStateRepository`. Сериализует объект `Room` в JSON и сохраняет в Redis. Использует атомарный `SETNX` для безопасной гонки игроков за право ответа.
+*   `telegram/http_client.py` — Клиент для отправки сообщений в Telegram через Aiohttp.
+*   `database/` — Модели SQLAlchemy для Postgres, пустой репозиторий и готовые миграции Alembic.
+
+### 4. `src/presentation/` (Входные точки HTTP / Telegram)
+
+Сюда приходят запросы от пользователей. Слой парсит входные данные и вызывает нужные Use Cases.
+
+*   `api/telegram_router.py` — **[В РАЗРАБОТКЕ]** Будущий роутер обработки вебхуков.
+*   `schemas/` — Pydantic модели для валидации входящих HTTP/JSON/WS запросов.
+
+### 5. Контейнер и Сборка
+
+*   **`src/main.py`** — Временный черновик "грязной сборки". Содержит Long Polling цикл исключительно для тестирования гонки `PressButtonUseCase` в Telegram. Здесь инжектятся реальный `RedisClient` и абстрактные Use Cases.
+*   `src/shared/di_container.py` и `config.py` — Заготовки контейнера внедрения зависимостей (Dependency Injection) и конфигуратора (Pydantic Settings).
+
+---
+
+## Что нужно сделать дальше?
+
+Ядро (Domain) и сценарий гонки полностью готовы и обкатаны. Оставшаяся работа — это инфраструктурная "обвязка" и доработка остальных Use Cases.
+
+Возможные шаги:
+1. **SubmitAnswerUseCase** — логика проверки текстового ответа игрока и переход FSM комнаты к следующему вопросу.
+2. **PostgresGameRepository** — реализация БД репозитория, сидер (загрузчик) вопросов из паков "Своей игры" и подключение их в `start_game`.
+3. **Рефакторинг `main.py`** — перенос роутинга в `telegram_router.py`, нормальный DI, очистка точки входа до запуска aiohttp-сервера.
