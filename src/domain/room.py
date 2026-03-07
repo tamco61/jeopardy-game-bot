@@ -9,11 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from src.domain.entities.player import Player
-from src.domain.entities.question import Question, QuestionType
-from src.domain.exception.invalid_transition import InvalidTransitionError
-from src.domain.exception.player_blocked import PlayerBlockedError
-from src.domain.exception.player_not_found import PlayerNotFoundError
+from src.domain.errors import (
+    InvalidTransitionError,
+    PlayerBlockedError,
+    PlayerNotFoundError,
+)
+from src.domain.player import Player
+from src.domain.question import Question, QuestionType
 
 
 class Phase(str, Enum):

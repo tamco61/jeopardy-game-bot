@@ -1,7 +1,7 @@
 """Юнит-тесты доменной логики «Своей Игры».
 
 1. FSM-переходы Room.
-2. PressButtonUseCase с моком IStateRepository.
+2. PressButtonUseCase с моком RedisStateRepository.
 """
 
 from __future__ import annotations
@@ -10,13 +10,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.application.interfaces.state_repository import IStateRepository
-from src.application.use_cases.press_button import PressButtonUseCase
-from src.domain.entities.player import Player
-from src.domain.entities.question import Question, QuestionType
-from src.domain.entities.room import Phase, Room
-from src.domain.exception.invalid_transition import InvalidTransitionError
-from src.domain.exception.player_blocked import PlayerBlockedError
+from src.application.press_button import PressButtonUseCase
+from src.domain.errors import InvalidTransitionError, PlayerBlockedError
+from src.domain.player import Player
+from src.domain.question import Question, QuestionType
+from src.domain.room import Phase, Room
+from src.infrastructure.redis_repo import RedisStateRepository
 
 # ────────────────────────────────────────────────────
 #  Фикстуры
@@ -324,7 +323,7 @@ class TestFinalRound:
 
 
 class TestPressButtonUseCase:
-    """Тесты Use Case нажатия кнопки с моком IStateRepository."""
+    """Тесты Use Case нажатия кнопки с моком RedisStateRepository."""
 
     @pytest.fixture
     def room_waiting(
@@ -339,8 +338,8 @@ class TestPressButtonUseCase:
 
     @pytest.fixture
     def mock_repo(self, room_waiting: Room) -> AsyncMock:
-        """Мок IStateRepository."""
-        repo = AsyncMock(spec=IStateRepository)
+        """Мок RedisStateRepository."""
+        repo = AsyncMock(spec=RedisStateRepository)
         repo.get_room.return_value = room_waiting
         repo.try_capture_button.return_value = True
         return repo

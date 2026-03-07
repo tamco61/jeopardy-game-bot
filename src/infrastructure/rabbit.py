@@ -1,4 +1,4 @@
-"""Реализация IMessagePublisher поверх RabbitMQ.
+"""Реализация RabbitMQPublisher поверх RabbitMQ.
 
 Требует установки пакета ``aio-pika``: pip install aio-pika.
 """
@@ -8,10 +8,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.application.interfaces.message_publisher import IMessagePublisher
 
-
-class RabbitMQPublisher(IMessagePublisher):
+class RabbitMQPublisher:
     """Публикация сообщений в RabbitMQ через aio-pika."""
 
     def __init__(self, rabbitmq_url: str) -> None:

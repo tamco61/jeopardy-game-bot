@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
-from src.application.interfaces.state_repository import IStateRepository
-from src.domain.exception.invalid_transition import InvalidTransitionError
-from src.domain.exception.player_blocked import PlayerBlockedError
-from src.domain.exception.player_not_found import PlayerNotFoundError
+from src.domain.errors import (
+    InvalidTransitionError,
+    PlayerBlockedError,
+    PlayerNotFoundError,
+)
+from src.infrastructure.redis_repo import RedisStateRepository
 
 
 class PressButtonResult:
@@ -36,7 +38,7 @@ class PressButtonUseCase:
     3. Сохраняем обновлённое состояние.
     """
 
-    def __init__(self, state_repo: IStateRepository) -> None:
+    def __init__(self, state_repo: RedisStateRepository) -> None:
         self._state_repo = state_repo
 
     async def execute(self, room_id: str, player_id: str) -> PressButtonResult:

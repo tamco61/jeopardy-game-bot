@@ -1,4 +1,4 @@
-"""Реализация IStateRepository поверх Redis.
+"""Реализация RedisStateRepository поверх Redis.
 
 Микро-состояния FSM (LOBBY, ANSWERING и т.д.) живут здесь.
 В Postgres пишется только старт матча и итоговые результаты.
@@ -11,13 +11,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.application.interfaces.state_repository import IStateRepository
-from src.domain.entities.player import Player
-from src.domain.entities.question import Question, QuestionType
-from src.domain.entities.room import Phase, Room
+from src.domain.player import Player
+from src.domain.question import Question, QuestionType
+from src.domain.room import Phase, Room
 
 
-class RedisStateRepository(IStateRepository):
+class RedisStateRepository:
     """Хранение игрового состояния комнат в Redis (JSON-сериализация)."""
 
     _KEY_PREFIX = "room:"

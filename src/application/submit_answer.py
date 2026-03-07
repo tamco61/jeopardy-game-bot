@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from src.application.interfaces.state_repository import IStateRepository
+from src.infrastructure.redis_repo import RedisStateRepository
 
 
 class SubmitAnswerUseCase:
     """Сценарий проверки ответа игрока.
 
     Оркестрация:
-    1. Загрузить комнату (IStateRepository).
+    1. Загрузить комнату (RedisStateRepository).
     2. Вызвать room.submit_answer(player, text).
     3. Начислить / списать очки, обновить состояние.
     """
 
-    def __init__(self, state_repo: IStateRepository) -> None:
+    def __init__(self, state_repo: RedisStateRepository) -> None:
         self._state_repo = state_repo
 
     async def execute(self, room_id: str, telegram_id: int, answer: str) -> bool:

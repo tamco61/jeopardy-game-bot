@@ -9,7 +9,7 @@
 | Компонент | Технология |
 |---|---|
 | Язык | Python 3.11+ |
-| Архитектура | Clean Architecture, FSM (Конечный автомат) |
+| Архитектура | Simplified Clean Architecture, FSM (Конечный автомат) |
 | Telegram API | Long Polling через `aiohttp` |
 | Кэш / Состояние | Redis (`redis.asyncio`, атомарный `SETNX`) |
 | База данных | PostgreSQL + SQLAlchemy 2.0 (async) |
@@ -45,7 +45,7 @@ uv run alembic upgrade head
 
 ### 4. Запуск бота
 ```bash
-python src/main.py
+uv run python src/main.py
 ```
 Бот запустится в режиме long polling. Напишите боту `/start_game` в Telegram-чате — он отправит вопрос с кнопкой «🔴 Ждите...», через 2–5 секунд кнопка станет зелёной «🟢 Ответить», и начнётся гонка на реакцию.
 
@@ -72,7 +72,7 @@ uv run pytest tests/ -v
 | `PostgresGameRepository` | ✅ Готов | CRUD вопросов/тем/раундов через SQLAlchemy |
 | `TelegramHttpClient` | ✅ Готов | Обёртка над aiohttp для Telegram Bot API |
 | `main.py` (Long Polling) | ✅ Готов | Рабочий MVP: `/start_game`, таймер кнопки, гонка |
-| Юнит-тесты | ✅ 14 тестов | FSM-переходы, пауза, финал, PressButtonUseCase с моками |
+| Юнит-тесты | ✅ 24 теста | FSM-переходы, пауза, финал, PressButtonUseCase |
 
 ### Что в заглушках (TODO)
 
@@ -80,8 +80,7 @@ uv run pytest tests/ -v
 |---|---|---|
 | `SubmitAnswerUseCase` | 🔲 Заглушка | Проверка текстового ответа игрока |
 | `StartGameUseCase` | 🔲 Заглушка | Старт раунда: вопрос из БД + создание комнаты |
-| `TelegramRouter` | 🔲 Заглушка | Маршрутизация обновлений по Use Case'ам |
-| `di_container.py` | 🔲 Заглушка | DI-контейнер (пока только псевдокод-пример) |
+| `TelegramRouter` | 🔲 Заглушка | Маршрутизация текстовых обновлений по Use Case'ам |
 | `RabbitMQPublisher` | ⚙️ Каркас | Подключение к RabbitMQ, publish сообщений |
 | `TelegramSenderWorker` | 🔲 Заглушка | Потребитель очереди для отправки в Telegram |
 
@@ -93,99 +92,70 @@ uv run pytest tests/ -v
 jeopardy-game-bot/
 ├── src/
 │   ├── domain/                            # 🟢 ЯДРО — Чистая бизнес-логика
-│   │   ├── entities/
-│   │   │   ├── room.py                    # Room FSM (11 фаз, все переходы)
-│   │   │   ├── player.py                  # Player (очки, блокировка, ready)
-│   │   │   └── question.py               # Question (текст, ответ, тип)
-│   │   └── exception/
-│   │       ├── base.py                    # DomainError
-│   │       ├── invalid_transition.py      # InvalidTransitionError
-│   │       ├── player_blocked.py          # PlayerBlockedError
-│   │       └── player_not_found.py        # PlayerNotFoundError
+│   │   ├── room.py                        # Room FSM (11 фаз, все переходы)
+│   │   ├── player.py                      # Player (очки, блокировка, ready)
+│   │   ├── question.py                    # Question (текст, ответ, тип)
+│   │   └── errors.py                      # Бизнес-ошибки (DomainError и др.)
 │   │
 │   ├── application/                       # 🟡 USE CASES — Оркестрация
-│   │   ├── interfaces/                    # Порты (абстракции)
-│   │   │   ├── state_repository.py        # IStateRepository (Redis)
-│   │   │   ├── game_repository.py         # IGameRepository (Postgres)
-│   │   │   └── message_publisher.py       # IMessagePublisher (RabbitMQ)
-│   │   └── use_cases/
-│   │       ├── press_button.py            # ✅ PressButtonUseCase
-│   │       ├── submit_answer.py           # 🔲 SubmitAnswerUseCase (TODO)
-│   │       └── start_game.py              # 🔲 StartGameUseCase (TODO)
+│   │   ├── press_button.py                # ✅ PressButtonUseCase
+│   │   ├── submit_answer.py               # 🔲 SubmitAnswerUseCase (TODO)
+│   │   └── start_game.py                  # 🔲 StartGameUseCase (MVP)
 │   │
 │   ├── infrastructure/                    # 🔵 ВНЕШНИЕ СЕРВИСЫ
-│   │   ├── cache/
-│   │   │   └── redis_state_repo.py        # ✅ RedisStateRepository
-│   │   ├── database/
-│   │   │   ├── base.py                    # SQLAlchemy Base
-│   │   │   ├── models.py                  # ORM-модели (7 таблиц)
-│   │   │   └── postgres_game_repo.py      # ✅ PostgresGameRepository
-│   │   ├── messaging/
-│   │   │   └── rabbit_publisher.py        # ⚙️ RabbitMQPublisher
-│   │   └── telegram/
-│   │       └── http_client.py             # ✅ TelegramHttpClient
+│   │   ├── redis_repo.py                  # ✅ RedisStateRepository
+│   │   ├── postgres_repo.py               # ✅ PostgresGameRepository + Models
+│   │   ├── rabbit.py                      # ⚙️ RabbitMQPublisher
+│   │   └── telegram.py                    # ✅ TelegramHttpClient
 │   │
-│   ├── presentation/                      # 🟣 ВХОДНЫЕ ТОЧКИ
-│   │   ├── api/
-│   │   │   ├── telegram_router.py         # 🔲 TelegramRouter (TODO)
-│   │   │   └── websocket_router.py        # 🔲 WebSocket роутер
-│   │   └── schemas/
-│   │       ├── incoming_update.py         # IncomingTelegramUpdateDTO
-│   │       └── ws_message.py              # WebSocketMessageDTO
-│   │
-│   ├── workers/                           # ⚙️ ФОНОВЫЕ ВОРКЕРЫ
-│   │   ├── base_worker.py                 # BaseWorker
-│   │   └── telegram_sender.py             # 🔲 TelegramSenderWorker
+│   ├── bot/                               # 🟣 ВХОДНЫЕ ТОЧКИ (Telegram)
+│   │   ├── handlers.py                    # ✅ TelegramRouter / WS Роутер
+│   │   ├── schemas.py                     # DTO (IncomingTelegramUpdateDTO)
+│   │   └── worker.py                      # 🔲 TelegramSenderWorker (TODO)
 │   │
 │   ├── shared/                            # 🔧 УТИЛИТЫ
 │   │   ├── config.py                      # AppSettings (pydantic-settings)
-│   │   ├── di_container.py                # 🔲 DI-контейнер (TODO)
 │   │   └── logger.py                      # JSONLogger
 │   │
-│   └── main.py                            # ✅ Точка входа (Long Polling MVP)
+│   └── main.py                            # ✅ Composition Root (Long Polling)
 │
 ├── tests/
-│   ├── test_game_domain.py                # ✅ 14 юнит-тестов (FSM + UseCase)
-│   ├── conftest.py
-│   ├── unit/                              # (будущие юнит-тесты)
-│   └── integration/                       # (будущие интеграционные тесты)
-│
+│   └── test_game_domain.py                # ✅ 24 юнит-теста
 ├── migrations/                            # Alembic миграции
 ├── alembic.ini
 ├── docker-compose.yml                     # Postgres + Redis + RabbitMQ
 ├── pyproject.toml
-├── requirements.txt
 └── .env                                   # Конфигурация окружения
 ```
 
 ---
 
-## 🏗 Архитектура (Clean Architecture)
+## 🏗 Архитектура (Simplified Clean Architecture)
 
 ```
 ┌─────────────────────────────────────────┐
-│  Presentation (main.py, TelegramRouter) │  ← Входящие запросы
+│  Bot (main.py, TelegramRouter)          │  ← Входящие запросы
 ├─────────────────────────────────────────┤
-│  Application (Use Cases, Interfaces)    │  ← Оркестрация
+│  Application (Use Cases)                │  ← Оркестрация
 ├─────────────────────────────────────────┤
 │  Domain (Room FSM, Player, Question)    │  ← Чистая бизнес-логика
 ├─────────────────────────────────────────┤
-│  Infrastructure (Redis, Postgres, TG)   │  ← Реализация интерфейсов
+│  Infrastructure (Redis, Postgres, TG)   │  ← Конкретные реализации
 └─────────────────────────────────────────┘
 ```
 
-**Правило зависимостей:** внутренние слои не знают о внешних. `Domain` не импортирует ничего из `Infrastructure`. `Application` работает через абстрактные интерфейсы (`IStateRepository`, `IGameRepository`), а конкретные реализации (`RedisStateRepository`, `PostgresGameRepository`) подключаются снаружи.
+**Правило зависимостей:** внутренние слои не знают о внешних. `Domain` не импортирует ничего из `Application` или `Infrastructure`. Код максимально упрощён: `Application` напрямую работает с конкретными классами `Infrastructure` без использования абстрактных интерфейсов. Передача зависимостей происходит в `main.py` (Pure DI).
 
 ---
 
 ## 🧪 Тесты
 
-14 юнит-тестов покрывают:
+24 юнит-теста покрывают:
 - **FSM-переходы** Room (LOBBY → BOARD_VIEW → READING → ANSWERING и обратно)
 - **Правила игры** (блокировка игрока после неверного ответа, начисление/списание очков)
 - **Финальный раунд** (ставки, проверка ответов, подсчёт итогов)
 - **Пауза/возобновление** из любой фазы
-- **PressButtonUseCase** с моком `IStateRepository` (гонка, откат, комната не найдена)
+- **PressButtonUseCase** (гонка, откат, комната не найдена)
 
 ```bash
 uv run pytest tests/ -v
@@ -196,7 +166,6 @@ uv run pytest tests/ -v
 ## 🔜 Следующие шаги
 
 1. **`SubmitAnswerUseCase`** — проверка текстового ответа и продвижение FSM.
-2. **`StartGameUseCase`** — выбор вопроса из БД, создание комнаты.
-3. **`TelegramRouter`** — маршрутизация обновлений по Use Case'ам.
-4. **DI-контейнер** — нормальная сборка зависимостей.
-5. **Сидер вопросов** — загрузка паков «Своей Игры» в Postgres.
+2. **`StartGameUseCase`** — выбор вопроса из БД, создание комнаты (уйти от MVP заглушки).
+3. **Обработка обычного текста в роутере** — для перехвата ответов.
+4. **Сидер вопросов** — загрузка паков «Своей Игры» в Postgres.
