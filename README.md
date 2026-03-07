@@ -64,25 +64,31 @@ uv run pytest tests/ -v
 
 | Компонент | Статус | Описание |
 |---|---|---|
-| `Room` FSM | ✅ Готов | Полный конечный автомат с фазами LOBBY → BOARD_VIEW → READING → WAITING_FOR_PUSH → ANSWERING → BOARD_VIEW, финальный раунд, пауза |
+| `Room` FSM | ✅ Готов | Полный конечный автомат с фазами LOBBY → BOARD_VIEW → READING → WAITING_FOR_PUSH → ANSWERING ↔ FINAL_ROUND, пауза |
 | `Player` | ✅ Готов | Баллы, блокировка на вопрос, статус готовности |
 | `Question` | ✅ Готов | Обычный / Кот в мешке / Аукцион, проверка ответа |
+| `LobbyManagement` | ✅ Готов | `Create / Join / Ready / Leave` Use Cases |
+| `StartGameUseCase` | ✅ Готов | Старт раунда: лобби → игра (MVP-заглушка для вопросов) |
+| `SelectQuestionUseCase` | ✅ Готов | Выбор вопроса из табло, таймер на чтение |
 | `PressButtonUseCase` | ✅ Готов | Атомарная гонка через Redis `SETNX`, откат при ошибке |
+| `SubmitAnswerUseCase` | ✅ Готов | Ввод текста игроком, проверка ведущим |
+| `GameProcessUseCase` | ✅ Готов | Пауза (`PauseGameUseCase`) / Снятие с паузы (`UnpauseGameUseCase`) |
+| `SpecialEventsUseCase` | ✅ Готов | Аукцион `PlaceStakeUseCase`, ставки в финале |
 | `RedisStateRepository` | ✅ Готов | Сериализация Room ↔ JSON, блокировки кнопок |
 | `PostgresGameRepository` | ✅ Готов | CRUD вопросов/тем/раундов через SQLAlchemy |
 | `TelegramHttpClient` | ✅ Готов | Обёртка над aiohttp для Telegram Bot API |
-| `main.py` (Long Polling) | ✅ Готов | Рабочий MVP: `/start_game`, таймер кнопки, гонка |
+| `TelegramRouter` | ✅ Готов | Маршрутизация текстовых обновлений и CallbackQuery по UseCase'ам |
+| `main.py` (Long Polling) | ✅ Готов | Рабочий сборщик (Pure DI) для всех UseCases и обработка потери связи с БД |
 | Юнит-тесты | ✅ 24 теста | FSM-переходы, пауза, финал, PressButtonUseCase |
 
-### Что в заглушках (TODO)
+### Что в планах (TODO)
 
 | Компонент | Статус | Описание |
 |---|---|---|
-| `SubmitAnswerUseCase` | 🔲 Заглушка | Проверка текстового ответа игрока |
-| `StartGameUseCase` | 🔲 Заглушка | Старт раунда: вопрос из БД + создание комнаты |
-| `TelegramRouter` | 🔲 Заглушка | Маршрутизация текстовых обновлений по Use Case'ам |
-| `RabbitMQPublisher` | ⚙️ Каркас | Подключение к RabbitMQ, publish сообщений |
-| `TelegramSenderWorker` | 🔲 Заглушка | Потребитель очереди для отправки в Telegram |
+| Аутентификация / Роли | 🔲 Заглушка | Нормальная проверка `HOST` и `PLAYER` в Router'е |
+| RabbitMQPublisher | ⚙️ Каркас | Подключение к RabbitMQ, publish сообщений |
+| TelegramSenderWorker | 🔲 Заглушка | Потребитель очереди для отправки в Telegram |
+| Сидер базы данных | 🔲 Заглушка | Парсинг и сохранение реальных пакетов (SIG) в Postgres |
 
 ---
 
@@ -98,9 +104,13 @@ jeopardy-game-bot/
 │   │   └── errors.py                      # Бизнес-ошибки (DomainError и др.)
 │   │
 │   ├── application/                       # 🟡 USE CASES — Оркестрация
+│   │   ├── game_process.py                # ✅ PauseGameUseCase, UnpauseGameUseCase
+│   │   ├── lobby_management.py            # ✅ Create/Join/Ready/LeaveLobbyUseCase
 │   │   ├── press_button.py                # ✅ PressButtonUseCase
-│   │   ├── submit_answer.py               # 🔲 SubmitAnswerUseCase (TODO)
-│   │   └── start_game.py                  # 🔲 StartGameUseCase (MVP)
+│   │   ├── select_question.py             # ✅ SelectQuestionUseCase
+│   │   ├── special_events.py              # ✅ PlaceStakeUseCase, FinalStakeUseCase
+│   │   ├── start_game.py                  # ✅ StartGameUseCase (MVP)
+│   │   └── submit_answer.py               # ✅ SubmitAnswerUseCase
 │   │
 │   ├── infrastructure/                    # 🔵 ВНЕШНИЕ СЕРВИСЫ
 │   │   ├── redis_repo.py                  # ✅ RedisStateRepository
@@ -165,7 +175,7 @@ uv run pytest tests/ -v
 
 ## 🔜 Следующие шаги
 
-1. **`SubmitAnswerUseCase`** — проверка текстового ответа и продвижение FSM.
-2. **`StartGameUseCase`** — выбор вопроса из БД, создание комнаты (уйти от MVP заглушки).
-3. **Обработка обычного текста в роутере** — для перехвата ответов.
-4. **Сидер вопросов** — загрузка паков «Своей Игры» в Postgres.
+1. **Реализация ролевой модели** — полноценная проверка HOST/PLAYER в `TelegramRouter`.
+2. **Система парсинга SIG пакетов** — загрузка реальных пакетов «Своей Игры» в базу PostgreSQL.
+3. **Улучшение UI/UX в Telegram** — красивые инлайн-клавиатуры для табло (BOARD_VIEW), обновление сообщений.
+4. **Интеграция с RabbitMQ Worker** — для надежной рассылки сообщений через брокер.

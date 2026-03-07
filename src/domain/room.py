@@ -63,6 +63,7 @@ class Room:
     # Текущий вопрос (заполняется при выборе с табло)
     current_question: Question | None = None
     answering_player_id: str | None = None
+    player_answer: str | None = None
 
     # Финальный раунд
     final_question: Question | None = None
@@ -176,6 +177,44 @@ class Room:
     # ────────────────────────────────────────────────
     #  ANSWERING -> BOARD_VIEW / WAITING_FOR_PUSH
     # ────────────────────────────────────────────────
+
+    def provide_answer(self, player_id: str, answer: str) -> None:
+        """Игрок даёт ответ, ожидая вердикта ведущего."""
+        self._assert_phase(Phase.ANSWERING, "provide_answer")
+
+        if self.answering_player_id != player_id:
+            msg = "Отвечать может только тот, кто нажал кнопку"
+            raise InvalidTransitionError(self.phase.value, msg)
+
+        self.player_answer = answer
+
+    def resolve_answer(self, player_id: str, is_correct: bool) -> None:
+        """Ведущий выносит вердикт по ответу игрока."""
+        self._assert_phase(Phase.ANSWERING, "resolve_answer")
+
+        if self.answering_player_id != player_id:
+            msg = "Вердикт относится не к тому игроку, который отвечает"
+            raise InvalidTransitionError(self.phase.value, msg)
+
+        if self.current_question is None:
+            msg = "Нет текущего вопроса"
+            raise InvalidTransitionError(self.phase.value, msg)
+
+        player = self.get_player(player_id)
+
+        if is_correct:
+            player.add_score(self.current_question.value)
+            self._end_question()
+        else:
+            player.deduct_score(self.current_question.value)
+            player.block_for_question()
+            self.answering_player_id = None
+            self.player_answer = None
+
+            if self._has_eligible_players():
+                self.phase = Phase.WAITING_FOR_PUSH
+            else:
+                self._end_question()
 
     def submit_answer(self, player_id: str, answer: str) -> bool:
         """Игрок даёт ответ.

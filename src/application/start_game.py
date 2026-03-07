@@ -1,90 +1,73 @@
 import asyncio
 import random
+from pydantic import BaseModel
 
 from src.domain.question import Question, QuestionType
 from src.domain.room import Phase, Room
 from src.infrastructure.postgres_repo import PostgresGameRepository
 from src.infrastructure.redis_repo import RedisStateRepository
-from src.infrastructure.telegram import TelegramHttpClient
+
+
+class StartGameDTO(BaseModel):
+    """Входные данные для старта игры."""
+    lobby_id: str
+    chat_id: int
+    host_player_id: str
+    pack_id: int
+
+
+class StartGameResultDTO(BaseModel):
+    """Результат старта игры."""
+    lobby_id: str
+    chat_id: int
+    phase: str
+    message: str
 
 
 class StartGameUseCase:
-    """Сценарий запуска нового раунда."""
+    """Сценарий запуска нового раунда / игры.
+    
+    Оркестрация:
+    1. Получить пакет вопросов из PostgresGameRepository.
+    2. Инициализировать доменную сущность Room (переход из LOBBY в BOARD_VIEW).
+    3. Сохранить начальное состояние в RedisStateRepository.
+    4. Вернуть DTO с результатом.
+    """
 
     def __init__(
         self,
         game_repo: PostgresGameRepository,
         state_repo: RedisStateRepository,
-        telegram_client: TelegramHttpClient,
     ) -> None:
         self._game_repo = game_repo
         self._state_repo = state_repo
-        self._tg = telegram_client
 
-    async def execute(self, chat_id: int) -> None:
-        """Имитация старта игры из main.py."""
-        await self._state_repo.delete_room("room_1")
-        await self._state_repo.release_button("room_1")
+    async def execute(self, dto: StartGameDTO) -> StartGameResultDTO:
+        """Инициализация комнаты на основе пакета вопросов."""
+        # 1. Загружаем пакет вопросов из Postgres (предполагаем наличие метода)
+        game_pack = await self._game_repo.get_game_pack(dto.pack_id)
+        
+        if not game_pack:
+            raise ValueError(f"Пакет вопросов с ID {dto.pack_id} не найден.")
 
-        room = Room(room_id="room_1", chat_id=chat_id, phase=Phase.READING)
-        room.current_question = Question(
-            question_id=1,
-            theme_name="Загадки",
-            text="Зимой и летом одним цветом?",
-            answer="елка",
-            value=300,
-            question_type=QuestionType.NORMAL,
-        )
+        # 2. Инициализация сущности Room (начинаем с LOBBY, затем переходим в BOARD_VIEW)
+        room = Room(room_id=dto.lobby_id, chat_id=dto.chat_id, phase=Phase.LOBBY)
+        
+        # В реальном приложении здесь происходило бы добавление игроков,
+        # и переход в BOARD_VIEW через room.start_game(). В целях текущего MVP
+        # мы можем сразу выставить фазу BOARD_VIEW (либо сымитировать готовность).
+        room.phase = Phase.BOARD_VIEW
+
+        # В будущем здесь можно сохранять game_pack внутрь комнаты,
+        # чтобы формировать табло. Для начала просто сохраняем стейт.
+
+        # 3. Сохраняем состояние в Redis
         await self._state_repo.save_room(room)
-        print(f"🎮 /start_game от chat_id={chat_id}. Комната в БД.")
 
-        reply_markup = {
-            "inline_keyboard": [
-                [{"text": "🔴 Ждите...", "callback_data": "btn_room_1"}]
-            ]
-        }
-
-        result = await self._tg.send_message(
-            chat_id=chat_id,
-            text=f"Вопрос за {room.current_question.value}: {room.current_question.text}",
-            reply_markup=reply_markup,
-        )
-
-        if not result.get("ok"):
-            print(f"Ошибка отправки: {result}")
-            return
-
-        sent_message_id = result["result"]["message_id"]
-        asyncio.create_task(self._activate_button(chat_id, sent_message_id))
-
-    async def _activate_button(self, chat_id: int, message_id: int) -> None:
-        """Ждёт случайное время (2-5 сек), переводит комнату в состояние ANSWERING."""
-        delay = random.uniform(2.0, 5.0)
-        print(f"⏱️ Таймер: кнопка станет зелёной через {delay:.1f} сек...")
-        await asyncio.sleep(delay)
-
-        room = await self._state_repo.get_room("room_1")
-        if not room or room.phase != Phase.READING:
-            print("Отмена таймера: комната не в состоянии READING.")
-            return
-
-        try:
-            room.activate_buzzer()
-            await self._state_repo.save_room(room)
-            print("🟢 FSM: Кнопка активна! Phase =", room.phase)
-        except Exception as e:
-            print(f"Ошибка активации: {e}")
-            return
-
-        green_markup = {
-            "inline_keyboard": [
-                [{"text": "🟢 Ответить", "callback_data": "btn_room_1"}]
-            ]
-        }
-
-        await self._tg.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=f"Вопрос за {room.current_question.value}: {room.current_question.text}",
-            reply_markup=green_markup,
+        # 4. Возвращаем DTO
+        return StartGameResultDTO(
+            lobby_id=room.room_id,
+            chat_id=room.chat_id,
+            phase=room.phase.value,
+            message="Игра успешно начата, табло готово."
         )
