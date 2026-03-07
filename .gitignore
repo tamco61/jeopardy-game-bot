@@ -177,3 +177,12 @@ pyrightconfig.json
 
 .idea
 /uv.lock
+
+# AI Agents & Memory
+.cursor/
+.cursorignore
+.gemini/
+.agents/
+.agent/
+.claude/
+.aignore
