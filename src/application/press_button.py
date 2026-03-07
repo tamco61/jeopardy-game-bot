@@ -49,7 +49,8 @@ class PressButtonUseCase:
         """
         # Шаг 1: атомарная гонка (Redis SETNX)
         captured = await self._state_repo.try_capture_button(
-            room_id, player_id,
+            room_id,
+            player_id,
         )
 
         if not captured:

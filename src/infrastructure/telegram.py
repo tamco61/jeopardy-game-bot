@@ -94,9 +94,12 @@ class TelegramHttpClient:
 
     async def _post(self, method: str, payload: dict) -> dict:
         if self._session is None or self._session.closed:
-            msg = "HTTP-сессия не открыта. Вызовите start() перед использованием."
+            msg = (
+                "HTTP-сессия не открыта. Вызовите start() перед использованием."
+            )
             raise RuntimeError(msg)
         async with self._session.post(
-            f"{self._base_url}/{method}", data=payload,
+            f"{self._base_url}/{method}",
+            data=payload,
         ) as resp:
             return await resp.json()

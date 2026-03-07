@@ -96,9 +96,8 @@ class Room:
     @property
     def all_ready(self) -> bool:
         """Все ли игроки готовы (и их >= 2)."""
-        return (
-            len(self.players) >= 2
-            and all(p.is_ready for p in self.players.values())
+        return len(self.players) >= 2 and all(
+            p.is_ready for p in self.players.values()
         )
 
     # ────────────────────────────────────────────────
@@ -127,7 +126,10 @@ class Room:
         for p in self.players.values():
             p.unblock()
 
-        if question.question_type in (QuestionType.CAT_IN_BAG, QuestionType.AUCTION):
+        if question.question_type in (
+            QuestionType.CAT_IN_BAG,
+            QuestionType.AUCTION,
+        ):
             self.phase = Phase.SPECIAL_EVENT
         else:
             self.phase = Phase.READING

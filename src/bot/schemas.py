@@ -58,6 +58,7 @@ class IncomingTelegramUpdateDTO(BaseModel):
     message: TelegramMessage | None = None
     callback_query: CallbackQuery | None = None
 
+
 """DTO для WebSocket-сообщений (фронтенд ↔ бэкенд)."""
 
 from __future__ import annotations

@@ -27,21 +27,21 @@ async def main() -> None:
     print("🚀 Запуск бота (long polling)...")
 
     settings = AppSettings()
-    
+
     # Инициализация зависимостей
     redis_client = aioredis.from_url(settings.redis_url)
     state_repo = RedisStateRepository(redis_client)
-    
+
     telegram_client = TelegramHttpClient(settings.telegram_bot_token)
-    
+
     press_uc = PressButtonUseCase(state_repo)
     start_game_uc = StartGameUseCase(
         game_repo=None,  # MVP заглушка, вопросы зашиты в коде
         state_repo=state_repo,
-        telegram_client=telegram_client
+        telegram_client=telegram_client,
     )
     submit_answer_uc = SubmitAnswerUseCase(state_repo)
-    
+
     router = TelegramRouter(
         telegram_client=telegram_client,
         start_game_uc=start_game_uc,
@@ -75,11 +75,13 @@ async def main() -> None:
                 break
             except Exception as e:
                 import traceback
+
                 traceback.print_exc()
                 print(f"❌ Критическая Ошибка: {e}")
                 await asyncio.sleep(5)
     finally:
         await telegram_client.close()
+
 
 if __name__ == "__main__":
     try:

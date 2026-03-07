@@ -36,7 +36,9 @@ class RedisStateRepository:
 
     async def save_room(self, room: Room) -> None:
         data = self._serialize(room)
-        await self._redis.set(self._key(room.room_id), json.dumps(data, ensure_ascii=False))
+        await self._redis.set(
+            self._key(room.room_id), json.dumps(data, ensure_ascii=False)
+        )
 
     async def delete_room(self, room_id: str) -> None:
         await self._redis.delete(self._key(room_id))
@@ -120,7 +122,9 @@ class RedisStateRepository:
                 first_name=pdata.get("first_name", ""),
                 score=pdata.get("score", 0),
                 is_ready=pdata.get("is_ready", False),
-                is_blocked_this_question=pdata.get("is_blocked_this_question", False),
+                is_blocked_this_question=pdata.get(
+                    "is_blocked_this_question", False
+                ),
             )
 
         current_question = RedisStateRepository._deserialize_question(

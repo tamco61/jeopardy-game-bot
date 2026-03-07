@@ -47,6 +47,7 @@ class BaseWorker(ABC):
         """Обработать одно сообщение из очереди."""
         ...
 
+
 """Воркер отправки сообщений в Telegram."""
 
 from __future__ import annotations

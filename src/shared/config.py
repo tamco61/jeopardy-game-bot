@@ -7,7 +7,9 @@ class AppSettings(BaseSettings):
     """Настройки, загружаемые из переменных окружения / .env файла."""
 
     # Postgres
-    database_url: str = "postgresql+asyncpg://jeopardy:secret@localhost:5432/jeopardy_db"
+    database_url: str = (
+        "postgresql+asyncpg://jeopardy:secret@localhost:5432/jeopardy_db"
+    )
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

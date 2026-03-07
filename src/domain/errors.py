@@ -8,6 +8,7 @@ class DomainError(Exception):
         self.message = message
         super().__init__(self.message)
 
+
 """Исключение: недопустимый переход FSM."""
 
 from src.domain.errors import DomainError
@@ -23,6 +24,7 @@ class InvalidTransitionError(DomainError):
         self.current_phase = current_phase
         self.attempted_action = attempted_action
 
+
 """Исключение: игрок заблокирован на текущий вопрос."""
 
 from src.domain.errors import DomainError
@@ -34,6 +36,7 @@ class PlayerBlockedError(DomainError):
     def __init__(self, player_name: str) -> None:
         super().__init__(f"Игрок {player_name} заблокирован на этот вопрос")
         self.player_name = player_name
+
 
 """Исключение: не найден игрок."""
 

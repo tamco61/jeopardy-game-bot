@@ -17,7 +17,9 @@ class SubmitAnswerUseCase:
     def __init__(self, state_repo: RedisStateRepository) -> None:
         self._state_repo = state_repo
 
-    async def execute(self, room_id: str, telegram_id: int, answer: str) -> bool:
+    async def execute(
+        self, room_id: str, telegram_id: int, answer: str
+    ) -> bool:
         """Проверить ответ игрока.
 
         Returns:

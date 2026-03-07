@@ -39,7 +39,9 @@ class StartGameUseCase:
         print(f"🎮 /start_game от chat_id={chat_id}. Комната в БД.")
 
         reply_markup = {
-            "inline_keyboard": [[{"text": "🔴 Ждите...", "callback_data": "btn_room_1"}]]
+            "inline_keyboard": [
+                [{"text": "🔴 Ждите...", "callback_data": "btn_room_1"}]
+            ]
         }
 
         result = await self._tg.send_message(
@@ -75,7 +77,9 @@ class StartGameUseCase:
             return
 
         green_markup = {
-            "inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": "btn_room_1"}]]
+            "inline_keyboard": [
+                [{"text": "🟢 Ответить", "callback_data": "btn_room_1"}]
+            ]
         }
 
         await self._tg.edit_message_text(
