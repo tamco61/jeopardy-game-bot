@@ -272,7 +272,7 @@ class PostgresGameRepository:
                 title=package_dto.title,
                 author=package_dto.author,
             )
-            
+
             for r_idx, r_dto in enumerate(package_dto.rounds):
                 round_model = RoundModel(
                     name=r_dto.name,
@@ -280,14 +280,14 @@ class PostgresGameRepository:
                     is_final=r_dto.is_final,
                 )
                 package_model.rounds.append(round_model)
-                
+
                 for t_idx, t_dto in enumerate(r_dto.themes):
                     theme_model = ThemeModel(
                         name=t_dto.name,
                         order_index=t_idx,
                     )
                     round_model.themes.append(theme_model)
-                    
+
                     for q_idx, q_dto in enumerate(t_dto.questions):
                         question_model = QuestionModel(
                             text=q_dto.text,
@@ -297,10 +297,10 @@ class PostgresGameRepository:
                             order_index=q_idx,
                         )
                         theme_model.questions.append(question_model)
-            
+
             session.add(package_model)
             await session.commit()
-            
+
             # После коммита id пакета обновится благодаря возврату из базы
             return package_model.id
 

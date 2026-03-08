@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel
+
 from src.domain.errors import DomainError
 from src.domain.room import Phase
 from src.infrastructure.redis_repo import RedisStateRepository
@@ -10,6 +11,7 @@ from src.infrastructure.redis_repo import RedisStateRepository
 
 class SubmitAnswerDTO(BaseModel):
     """Данные для отправки ответа."""
+
     room_id: str
     player_id: str
     answer: str

@@ -4,12 +4,13 @@ from pydantic import BaseModel
 
 from src.domain.errors import DomainError
 from src.domain.player import Player
-from src.domain.room import Room, Phase
+from src.domain.room import Phase, Room
 from src.infrastructure.redis_repo import RedisStateRepository
 
 
 class BaseLobbyDTO(BaseModel):
     """Базовые атрибуты для лобби."""
+
     room_id: str
     player_id: str
     telegram_id: int
@@ -33,9 +34,9 @@ class CreateLobbyUseCase:
         room = Room(
             room_id=dto.room_id,
             chat_id=dto.telegram_id,  # временно: чат - это id инициатора или группы
-            phase=Phase.LOBBY
+            phase=Phase.LOBBY,
         )
-        
+
         await self._state_repo.save_room(room)
 
 
@@ -58,7 +59,7 @@ class JoinLobbyUseCase:
             telegram_id=dto.telegram_id,
             username=dto.username,
             first_name=dto.first_name,
-            score=0
+            score=0,
         )
         room.add_player(player)
 
@@ -71,13 +72,15 @@ class ReadyUseCase:
     def __init__(self, state_repo: RedisStateRepository) -> None:
         self._state_repo = state_repo
 
-    async def execute(self, room_id: str, player_id: str, is_ready: bool = True) -> None:
+    async def execute(
+        self, room_id: str, player_id: str, is_ready: bool = True
+    ) -> None:
         room = await self._state_repo.get_room(room_id)
         if not room:
             raise DomainError(f"Лобби {room_id} не найдено.")
 
         player = room.get_player(player_id)
-        
+
         if is_ready:
             room.mark_player_ready(player_id)
         else:
@@ -96,7 +99,7 @@ class LeaveLobbyUseCase:
         room = await self._state_repo.get_room(room_id)
         if not room:
             raise DomainError(f"Лобби {room_id} не найдено.")
-            
+
         if player_id in room.players:
             del room.players[player_id]
             await self._state_repo.save_room(room)

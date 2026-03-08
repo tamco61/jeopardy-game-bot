@@ -1,5 +1,6 @@
 import asyncio
 import random
+
 from pydantic import BaseModel
 
 from src.domain.question import Question, QuestionType
@@ -10,6 +11,7 @@ from src.infrastructure.redis_repo import RedisStateRepository
 
 class StartGameDTO(BaseModel):
     """Входные данные для старта игры."""
+
     lobby_id: str
     chat_id: int
     host_player_id: str
@@ -18,6 +20,7 @@ class StartGameDTO(BaseModel):
 
 class StartGameResultDTO(BaseModel):
     """Результат старта игры."""
+
     lobby_id: str
     chat_id: int
     phase: str
@@ -26,7 +29,7 @@ class StartGameResultDTO(BaseModel):
 
 class StartGameUseCase:
     """Сценарий запуска нового раунда / игры.
-    
+
     Оркестрация:
     1. Получить пакет вопросов из PostgresGameRepository.
     2. Инициализировать доменную сущность Room (переход из LOBBY в BOARD_VIEW).
@@ -46,13 +49,15 @@ class StartGameUseCase:
         """Инициализация комнаты на основе пакета вопросов."""
         # 1. Загружаем пакет вопросов из Postgres (предполагаем наличие метода)
         game_pack = await self._game_repo.get_game_pack(dto.pack_id)
-        
+
         if not game_pack:
             raise ValueError(f"Пакет вопросов с ID {dto.pack_id} не найден.")
 
         # 2. Инициализация сущности Room (начинаем с LOBBY, затем переходим в BOARD_VIEW)
-        room = Room(room_id=dto.lobby_id, chat_id=dto.chat_id, phase=Phase.LOBBY)
-        
+        room = Room(
+            room_id=dto.lobby_id, chat_id=dto.chat_id, phase=Phase.LOBBY
+        )
+
         # В реальном приложении здесь происходило бы добавление игроков,
         # и переход в BOARD_VIEW через room.start_game(). В целях текущего MVP
         # мы можем сразу выставить фазу BOARD_VIEW (либо сымитировать готовность).
@@ -69,5 +74,5 @@ class StartGameUseCase:
             lobby_id=room.room_id,
             chat_id=room.chat_id,
             phase=room.phase.value,
-            message="Игра успешно начата, табло готово."
+            message="Игра успешно начата, табло готово.",
         )

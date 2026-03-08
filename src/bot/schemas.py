@@ -61,11 +61,7 @@ class IncomingTelegramUpdateDTO(BaseModel):
 
 """DTO для WebSocket-сообщений (фронтенд ↔ бэкенд)."""
 
-from __future__ import annotations
-
 from enum import Enum
-
-from pydantic import BaseModel
 
 
 class WSEventType(str, Enum):

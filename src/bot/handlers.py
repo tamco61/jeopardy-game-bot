@@ -1,29 +1,31 @@
 import asyncio
-
 import os
 
+from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.application.lobby_management import (
     BaseLobbyDTO,
     CreateLobbyUseCase,
     JoinLobbyUseCase,
-    ReadyUseCase,
     LeaveLobbyUseCase,
+    ReadyUseCase,
 )
-from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.application.press_button import PressButtonUseCase
-from src.application.select_question import SelectQuestionUseCase, SelectQuestionDTO
+from src.application.select_question import (
+    SelectQuestionDTO,
+    SelectQuestionUseCase,
+)
 from src.application.special_events import (
+    CloseFinalStakeUseCase,
     PlaceStakeUseCase,
     StartFinalStakeUseCase,
-    CloseFinalStakeUseCase,
 )
-from src.application.start_game import StartGameUseCase, StartGameDTO
-from src.application.submit_answer import SubmitAnswerUseCase, SubmitAnswerDTO
+from src.application.start_game import StartGameDTO, StartGameUseCase
+from src.application.submit_answer import SubmitAnswerDTO, SubmitAnswerUseCase
 from src.domain.player import Player
 from src.domain.room import Phase
+from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
-from src.infrastructure.rabbit import RabbitMQPublisher
 
 
 class TelegramRouter:
@@ -87,20 +89,23 @@ class TelegramRouter:
                 player_id=player_id,
                 telegram_id=chat_id,
                 username=username,
-                first_name=user.get("first_name", "")
+                first_name=user.get("first_name", ""),
             )
 
             if text == "/upload_pack":
                 await self._tg.send_message(
-                    chat_id, 
-                    "📂 Чтобы загрузить свой пакет вопросов, отправьте файл `.siq` и в поле подписи (caption) напишите `/upload_pack`."
+                    chat_id,
+                    "📂 Чтобы загрузить свой пакет вопросов, отправьте файл `.siq` и в поле подписи (caption) напишите `/upload_pack`.",
                 )
                 return
 
             if text == "/create_lobby":
                 try:
                     await self._create_lobby.execute(lobby_dto)
-                    await self._tg.send_message(chat_id, "Лобби создано! Вы ведущий (HOST). Игроки могут писать /join.")
+                    await self._tg.send_message(
+                        chat_id,
+                        "Лобби создано! Вы ведущий (HOST). Игроки могут писать /join.",
+                    )
                 except Exception as e:
                     await self._tg.send_message(chat_id, f"Ошибка: {e}")
                 return
@@ -108,23 +113,33 @@ class TelegramRouter:
             if text == "/join":
                 try:
                     await self._join_lobby.execute(lobby_dto)
-                    await self._tg.send_message(chat_id, f"Игрок @{username} присоединился к лобби!")
+                    await self._tg.send_message(
+                        chat_id, f"Игрок @{username} присоединился к лобби!"
+                    )
                 except Exception as e:
                     await self._tg.send_message(chat_id, f"Ошибка: {e}")
                 return
 
             if text == "/ready":
                 try:
-                    await self._ready.execute("room_1", player_id, is_ready=True)
-                    await self._tg.send_message(chat_id, f"Игрок @{username} готов!")
+                    await self._ready.execute(
+                        "room_1", player_id, is_ready=True
+                    )
+                    await self._tg.send_message(
+                        chat_id, f"Игрок @{username} готов!"
+                    )
                 except Exception as e:
                     await self._tg.send_message(chat_id, f"Ошибка: {e}")
                 return
 
             if text == "/notready":
                 try:
-                    await self._ready.execute("room_1", player_id, is_ready=False)
-                    await self._tg.send_message(chat_id, f"Игрок @{username} не готов.")
+                    await self._ready.execute(
+                        "room_1", player_id, is_ready=False
+                    )
+                    await self._tg.send_message(
+                        chat_id, f"Игрок @{username} не готов."
+                    )
                 except Exception as e:
                     await self._tg.send_message(chat_id, f"Ошибка: {e}")
                 return
@@ -132,7 +147,9 @@ class TelegramRouter:
             if text == "/leave":
                 try:
                     await self._leave_lobby.execute("room_1", player_id)
-                    await self._tg.send_message(chat_id, f"Игрок @{username} покинул лобби.")
+                    await self._tg.send_message(
+                        chat_id, f"Игрок @{username} покинул лобби."
+                    )
                 except Exception as e:
                     await self._tg.send_message(chat_id, f"Ошибка: {e}")
                 return
@@ -143,27 +160,36 @@ class TelegramRouter:
                     lobby_id="room_1",
                     chat_id=chat_id,
                     host_player_id=player_id,
-                    pack_id=1
+                    pack_id=1,
                 )
                 try:
                     result = await self._start_game.execute(start_dto)
                     await self._tg.send_message(chat_id, result.message)
                 except Exception as e:
-                    await self._tg.send_message(chat_id, f"Ошибка старта игры: {e}")
+                    await self._tg.send_message(
+                        chat_id, f"Ошибка старта игры: {e}"
+                    )
                 return
 
             if text == "/pause":
                 try:
                     await self._pause.execute("room_1", player_id)
-                    await self._tg.send_message(chat_id, "⏸ Игра поставлена на паузу.")
+                    await self._tg.send_message(
+                        chat_id, "⏸ Игра поставлена на паузу."
+                    )
                 except Exception as e:
                     await self._tg.send_message(chat_id, f"Ошибка: {e}")
                 return
 
             if text == "/unpause":
                 try:
-                    phase_name = await self._unpause.execute("room_1", player_id)
-                    await self._tg.send_message(chat_id, f"▶️ Игра снята с паузы. Возврат в: {phase_name}")
+                    phase_name = await self._unpause.execute(
+                        "room_1", player_id
+                    )
+                    await self._tg.send_message(
+                        chat_id,
+                        f"▶️ Игра снята с паузы. Возврат в: {phase_name}",
+                    )
                 except Exception as e:
                     await self._tg.send_message(chat_id, f"Ошибка: {e}")
                 return
@@ -171,19 +197,28 @@ class TelegramRouter:
             if text.startswith("/stack "):
                 try:
                     stake_val = int(text.split(" ")[1])
-                    await self._place_stake.execute("room_1", player_id, stake_val)
-                    await self._tg.send_message(chat_id, f"Игрок @{username} поставил {stake_val} очков!")
+                    await self._place_stake.execute(
+                        "room_1", player_id, stake_val
+                    )
+                    await self._tg.send_message(
+                        chat_id,
+                        f"Игрок @{username} поставил {stake_val} очков!",
+                    )
                 except ValueError:
-                    await self._tg.send_message(chat_id, "Использование: /stack <сумма>")
+                    await self._tg.send_message(
+                        chat_id, "Использование: /stack <сумма>"
+                    )
                 except Exception as e:
                     await self._tg.send_message(chat_id, f"Ошибка: {e}")
                 return
 
             if text and not text.startswith("/"):
-
                 room = await self._state_repo.get_room("room_1")
                 if room and room.phase in (Phase.ANSWERING, Phase.FINAL_ANSWER):
-                    if room.phase == Phase.ANSWERING and room.answering_player_id != player_id:
+                    if (
+                        room.phase == Phase.ANSWERING
+                        and room.answering_player_id != player_id
+                    ):
                         return
 
                     dto = SubmitAnswerDTO(
@@ -198,8 +233,14 @@ class TelegramRouter:
                             keyboard = {
                                 "inline_keyboard": [
                                     [
-                                        {"text": "✅ Верно", "callback_data": f"verdict:yes:{player_id}"},
-                                        {"text": "❌ Неверно", "callback_data": f"verdict:no:{player_id}"}
+                                        {
+                                            "text": "✅ Верно",
+                                            "callback_data": f"verdict:yes:{player_id}",
+                                        },
+                                        {
+                                            "text": "❌ Неверно",
+                                            "callback_data": f"verdict:no:{player_id}",
+                                        },
                                     ]
                                 ]
                             }
@@ -248,7 +289,7 @@ class TelegramRouter:
                         )
                     except Exception as e:
                         print(f"Ошибка при вынесении вердикта: {e}")
-                
+
                 await self._tg.answer_callback_query(callback_query["id"])
                 return
 
@@ -257,36 +298,70 @@ class TelegramRouter:
                 if len(parts) == 2 and room and room.phase == Phase.BOARD_VIEW:
                     try:
                         q_id = int(parts[1])
-                        dto = SelectQuestionDTO(room_id="room_1", player_id=player_id, question_id=q_id)
-                        res = await self._select_question.execute(dto)
-                        
-                        await self._tg.send_message(
-                            chat_id, 
-                            f"Выбран вопрос за {res.question_value}\n\n{res.question_text}"
+                        dto = SelectQuestionDTO(
+                            room_id="room_1",
+                            player_id=player_id,
+                            question_id=q_id,
                         )
-                        
+                        res = await self._select_question.execute(dto)
+
+                        await self._tg.send_message(
+                            chat_id,
+                            f"Выбран вопрос за {res.question_value}\n\n{res.question_text}",
+                        )
+
                         if res.phase == Phase.READING.value:
-                            kb = {"inline_keyboard": [[{"text": "🔴 Ждите...", "callback_data": "btn_room_1"}]]}
+                            kb = {
+                                "inline_keyboard": [
+                                    [
+                                        {
+                                            "text": "🔴 Ждите...",
+                                            "callback_data": "btn_room_1",
+                                        }
+                                    ]
+                                ]
+                            }
                             sent_msg = await self._tg.send_message(
-                                chat_id, "Ожидайте активации кнопки...", reply_markup=kb
+                                chat_id,
+                                "Ожидайте активации кнопки...",
+                                reply_markup=kb,
                             )
                             if "result" in sent_msg:
                                 msg_id = sent_msg["result"]["message_id"]
                                 import random
-                                asyncio.create_task(self._activate_button(chat_id, msg_id, random.uniform(2.0, 5.0)))
+
+                                asyncio.create_task(
+                                    self._activate_button(
+                                        chat_id,
+                                        msg_id,
+                                        random.uniform(2.0, 5.0),
+                                    )
+                                )
                         elif res.phase == Phase.SPECIAL_EVENT.value:
                             await self._tg.send_message(
-                                chat_id, "Спец-ивент!\n(Заглушка для Кота в мешке / Аукциона)"
+                                chat_id,
+                                "Спец-ивент!\n(Заглушка для Кота в мешке / Аукциона)",
                             )
                         elif res.phase == Phase.FINAL_ROUND.value:
-                            kb = {"inline_keyboard": [[{"text": "🏁 Прием ставок", "callback_data": "final_start_stakes"}]]}
+                            kb = {
+                                "inline_keyboard": [
+                                    [
+                                        {
+                                            "text": "🏁 Прием ставок",
+                                            "callback_data": "final_start_stakes",
+                                        }
+                                    ]
+                                ]
+                            }
                             await self._tg.send_message(
-                                chat_id, "ФИНАЛЬНЫЙ РАУНД! Ведущий: откройте прием ставок.", reply_markup=kb
+                                chat_id,
+                                "ФИНАЛЬНЫЙ РАУНД! Ведущий: откройте прием ставок.",
+                                reply_markup=kb,
                             )
-                            
+
                     except Exception as e:
                         print(f"Ошибка при выборе вопроса: {e}")
-                
+
                 await self._tg.answer_callback_query(callback_query["id"])
                 return
 
@@ -294,21 +369,33 @@ class TelegramRouter:
                 if room and room.phase == Phase.FINAL_ROUND:
                     try:
                         await self._start_final_stake.execute("room_1")
-                        kb = {"inline_keyboard": [[{"text": "🔒 Закрыть ставки", "callback_data": "final_close_stakes"}]]}
+                        kb = {
+                            "inline_keyboard": [
+                                [
+                                    {
+                                        "text": "🔒 Закрыть ставки",
+                                        "callback_data": "final_close_stakes",
+                                    }
+                                ]
+                            ]
+                        }
                         await self._tg.send_message(
-                            chat_id, "📝 Прием ставок начат. Игроки могут делать ставки через `/stack <сумма>`. Ведущий: закройте прием, когда все ответят.", reply_markup=kb
+                            chat_id,
+                            "📝 Прием ставок начат. Игроки могут делать ставки через `/stack <сумма>`. Ведущий: закройте прием, когда все ответят.",
+                            reply_markup=kb,
                         )
                     except Exception as e:
                         print(f"Ошибка старта финальных ставок: {e}")
                 await self._tg.answer_callback_query(callback_query["id"])
                 return
-            
+
             if data == "final_close_stakes":
                 if room and room.phase == Phase.FINAL_STAKE:
                     try:
                         await self._close_final_stake.execute("room_1")
                         await self._tg.send_message(
-                            chat_id, "🔒 Ставки закрыты! Игроки: отправьте свой ответ в чат обычным сообщением."
+                            chat_id,
+                            "🔒 Ставки закрыты! Игроки: отправьте свой ответ в чат обычным сообщением.",
                         )
                     except Exception as e:
                         print(f"Ошибка закрытия финальных ставок: {e}")
@@ -351,7 +438,9 @@ class TelegramRouter:
                     text=result.error or "Кто-то успел раньше!",
                 )
 
-    async def _activate_button(self, chat_id: int, message_id: int, delay: float) -> None:
+    async def _activate_button(
+        self, chat_id: int, message_id: int, delay: float
+    ) -> None:
         """Ждёт случайное время (2-5 сек), переводит комнату в состояние WAITING_FOR_PUSH."""
         await asyncio.sleep(delay)
 
@@ -365,7 +454,11 @@ class TelegramRouter:
         except Exception:
             return
 
-        green_markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": "btn_room_1"}]]}
+        green_markup = {
+            "inline_keyboard": [
+                [{"text": "🟢 Ответить", "callback_data": "btn_room_1"}]
+            ]
+        }
 
         await self._tg.edit_message_text(
             chat_id=chat_id,
@@ -378,7 +471,7 @@ class TelegramRouter:
         chat_id = message["chat"]["id"]
         document = message["document"]
         caption = message.get("caption", "").strip()
-        
+
         if not caption.startswith("/upload_pack"):
             return
 
@@ -393,7 +486,9 @@ class TelegramRouter:
             # Получаем информацию о файле
             file_info = await self._tg.get_file(file_id)
             if not file_info.get("ok"):
-                await self._tg.send_message(chat_id, "Ошибка получения файла от Telegram.")
+                await self._tg.send_message(
+                    chat_id, "Ошибка получения файла от Telegram."
+                )
                 return
 
             file_path = file_info["result"]["file_path"]
@@ -402,16 +497,25 @@ class TelegramRouter:
             os.makedirs("data/uploads", exist_ok=True)
             local_path = os.path.abspath(f"data/uploads/{file_id}.siq")
 
-            await self._tg.send_message(chat_id, f"Скачиваю сик-пак '{file_name}'...")
+            await self._tg.send_message(
+                chat_id, f"Скачиваю сик-пак '{file_name}'..."
+            )
             await self._tg.download_file(file_path, local_path)
 
             # Публикуем задачу на парсинг в RabbitMQ
             # Мы используем routing_key для передачи в соответствующую очередь
-            await self._rabbit.publish("siq_parse_tasks", {"file_path": local_path})
+            await self._rabbit.publish(
+                "siq_parse_tasks", {"file_path": local_path}
+            )
 
-            await self._tg.send_message(chat_id, f"Пакет '{file_name}' успешно загружен и отправлен в очередь на обработку!")
+            await self._tg.send_message(
+                chat_id,
+                f"Пакет '{file_name}' успешно загружен и отправлен в очередь на обработку!",
+            )
         except Exception as e:
-            await self._tg.send_message(chat_id, f"Ошибка при скачивании/обработке пакета: {e}")
+            await self._tg.send_message(
+                chat_id, f"Ошибка при скачивании/обработке пакета: {e}"
+            )
             print(f"Ошибка загрузки SIQ: {e}")
 
 
