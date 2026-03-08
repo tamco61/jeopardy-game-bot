@@ -54,8 +54,6 @@ class SiqParserWorker(BaseWorker):
                     package_dto.title,
                     package_dto.author,
                 )
-                if os.path.exists(file_path):
-                    os.remove(file_path)
                 return
 
             # 3. Сохранение в БД
@@ -66,13 +64,12 @@ class SiqParserWorker(BaseWorker):
                 package_id,
             )
 
-            # Удаляем временный файл после успешной загрузки
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                self._log.info("Временный файл %s удален.", file_path)
-
         except Exception as e:
             self._log.exception(
                 "Ошибка при парсинге/сохранении пакета %s: %s", file_path, e
             )
             raise
+        finally:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                self._log.info("Временный файл %s удален.", file_path)
