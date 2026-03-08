@@ -4,8 +4,7 @@ from pydantic import BaseModel
 
 from src.domain.errors import DomainError
 from src.domain.question import Question, QuestionType
-from src.domain.room import Phase, Room
-from src.infrastructure.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.postgres_repo import PostgresGameRepository
 from src.infrastructure.redis_repo import RedisStateRepository
 
 

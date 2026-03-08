@@ -6,11 +6,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.infrastructure.postgres_repo import (
-    PostgresGameRepository,
-    build_engine,
-    build_session_factory,
-)
+from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.base import build_engine, build_session_factory
 from src.infrastructure.telegram import TelegramHttpClient
 from src.shared.config import AppSettings
 from src.workers.siq_parser_worker import SiqParserWorker

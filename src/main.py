@@ -30,11 +30,8 @@ from src.application.special_events import (
 from src.application.start_game import StartGameUseCase
 from src.application.submit_answer import SubmitAnswerUseCase
 from src.bot.handlers import TelegramRouter
-from src.infrastructure.postgres_repo import (
-    PostgresGameRepository,
-    build_engine,
-    build_session_factory,
-)
+from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.base import build_engine, build_session_factory
 from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient

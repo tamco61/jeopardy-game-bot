@@ -1,5 +1,4 @@
-import pytest
-from src.application.siq_parser import SiqParser
+from src.application.parser.siq_parser import SiqParser
 
 def test_siq_parser_xml():
     xml_data = b"""<?xml version="1.0" encoding="utf-8"?>

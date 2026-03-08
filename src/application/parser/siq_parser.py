@@ -2,40 +2,18 @@
 
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass, field
 from io import BytesIO
 
-
-@dataclass
-class QuestionDTO:
-    text: str
-    answer: str
-    value: int
-    question_type: str = "normal"
-
-
-@dataclass
-class ThemeDTO:
-    name: str
-    questions: list[QuestionDTO] = field(default_factory=list)
-
-
-@dataclass
-class RoundDTO:
-    name: str
-    is_final: bool = False
-    themes: list[ThemeDTO] = field(default_factory=list)
-
-
-@dataclass
-class PackageDTO:
-    title: str
-    author: str = ""
-    rounds: list[RoundDTO] = field(default_factory=list)
+from src.application.parser.dto import (
+    QuestionDTO,
+    ThemeDTO,
+    PackageDTO,
+    RoundDTO
+)
 
 
 class SiqParser:
-    """Парсер .siq архивов (SIGame/Свояк)."""
+    """Парсер .siq архивов"""
 
     def parse(self, file_path_or_bytes: str | bytes) -> PackageDTO:
         """Распарсить zip-архив .siq и вернуть DTO пакета."""
@@ -48,7 +26,6 @@ class SiqParser:
 
         with zf:
             try:
-                # В .siq структурах основной XML файл называется content.xml
                 content = zf.read("content.xml")
             except KeyError as e:
                 raise ValueError(
@@ -57,15 +34,16 @@ class SiqParser:
 
         return self._parse_xml(content)
 
-    def _parse_xml(self, xml_bytes: bytes) -> PackageDTO:
+    @staticmethod
+    def _parse_xml(xml_bytes: bytes) -> PackageDTO:
         """Разбор content.xml."""
         # Для борьбы с namespace'ами XML в SIGame:
         # Обычно корень <package xmlns="http://vladimirkhil.com/ygpackage3.0.xsd" ...>
-        # Чтобы не мучиться с ns, stripping is often easier, or we find tags correctly
+        # Чтобы не мучиться
 
         tree = ET.fromstring(xml_bytes)
 
-        # Хак для обхода namespaces (если они есть)
+        # Обход namespaces (если они есть)
         for elem in tree.iter():
             if "}" in elem.tag:
                 elem.tag = elem.tag.split("}", 1)[1]
