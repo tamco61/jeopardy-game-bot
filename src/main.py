@@ -33,6 +33,7 @@ from src.bot.handlers import TelegramRouter
 from src.infrastructure.postgres_repo import build_engine, build_session_factory, PostgresGameRepository
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
+from src.infrastructure.rabbit import RabbitMQPublisher
 from src.shared.config import AppSettings
 
 
@@ -70,6 +71,18 @@ async def main() -> None:
             async def release_button(self, *args, **kwargs): pass
         
         state_repo = DummyRedisRepo()
+
+    try:
+        rabbitmq = RabbitMQPublisher(settings.rabbitmq_url)
+        await rabbitmq.connect()
+        print("✅ Подключено к RabbitMQ")
+    except Exception as e:
+        print(f"⚠️ Ошибка подключения к RabbitMQ: {e}")
+        class DummyRabbit:
+            async def publish(self, *args, **kwargs): pass
+            async def connect(self): pass
+            async def disconnect(self): pass
+        rabbitmq = DummyRabbit()
 
     telegram_client = TelegramHttpClient(settings.telegram_bot_token)
 
@@ -110,6 +123,7 @@ async def main() -> None:
         start_final_stake_uc=start_final_stake_uc,
         close_final_stake_uc=close_final_stake_uc,
         state_repo=state_repo,
+        rabbit_publisher=rabbitmq,
     )
 
     await telegram_client.start()
@@ -143,6 +157,7 @@ async def main() -> None:
                 await asyncio.sleep(5)
     finally:
         await telegram_client.close()
+        await rabbitmq.disconnect()
 
 
 if __name__ == "__main__":
