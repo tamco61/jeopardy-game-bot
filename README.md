@@ -85,10 +85,10 @@ uv run pytest tests/ -v
 
 | Компонент | Статус | Описание |
 |---|---|---|
+| RabbitMQPublisher | ✅ Готов | Подключение к RabbitMQ, publish сообщений и задач |
+| Background Workers | ✅ Готов | Парсинг и сохранение реальных пакетов (SIG) в Postgres через RabbitMQ |
+| TelegramSenderWorker | ⚙️ Каркас | Потребитель очереди для отправки сообщений в Telegram |
 | Аутентификация / Роли | 🔲 Заглушка | Нормальная проверка `HOST` и `PLAYER` в Router'е |
-| RabbitMQPublisher | ⚙️ Каркас | Подключение к RabbitMQ, publish сообщений |
-| TelegramSenderWorker | 🔲 Заглушка | Потребитель очереди для отправки в Telegram |
-| Сидер базы данных | 🔲 Заглушка | Парсинг и сохранение реальных пакетов (SIG) в Postgres |
 
 ---
 
@@ -120,14 +120,19 @@ jeopardy-game-bot/
 │   │
 │   ├── bot/                               # 🟣 ВХОДНЫЕ ТОЧКИ (Telegram)
 │   │   ├── handlers.py                    # ✅ TelegramRouter / WS Роутер
-│   │   ├── schemas.py                     # DTO (IncomingTelegramUpdateDTO)
-│   │   └── worker.py                      # 🔲 TelegramSenderWorker (TODO)
+│   │   └── schemas.py                     # DTO (IncomingTelegramUpdateDTO)
+│   │
+│   ├── workers/                           # 🟠 ФОНОВЫЕ ВОРКЕРЫ (RabbitMQ)
+│   │   ├── base.py                        # Базовый класс для Consumer'ов RabbitMQ
+│   │   ├── siq_parser_worker.py           # ✅ Парсинг .siq файлов и сохранение в БД
+│   │   └── telegram_sender_worker.py      # ⚙️ TelegramSenderWorker (Очередь сообщений)
 │   │
 │   ├── shared/                            # 🔧 УТИЛИТЫ
 │   │   ├── config.py                      # AppSettings (pydantic-settings)
 │   │   └── logger.py                      # JSONLogger
 │   │
-│   └── main.py                            # ✅ Composition Root (Long Polling)
+│   ├── main.py                            # ✅ Composition Root (Long Polling Бот)
+│   └── run_workers.py                     # ✅ Точка входа для всех фоновых воркеров
 │
 ├── tests/
 │   └── test_game_domain.py                # ✅ 24 юнит-теста
@@ -160,7 +165,8 @@ jeopardy-game-bot/
 
 ## 🧪 Тесты
 
-24 юнит-теста покрывают:
+25 юнит-тестов покрывают:
+- **Парсер SIQ файлов** (извлечение всех сущностей из `content.xml` без распаковки медиа)
 - **FSM-переходы** Room (LOBBY → BOARD_VIEW → READING → ANSWERING и обратно)
 - **Правила игры** (блокировка игрока после неверного ответа, начисление/списание очков)
 - **Финальный раунд** (ставки, проверка ответов, подсчёт итогов)
@@ -175,7 +181,7 @@ uv run pytest tests/ -v
 
 ## 🔜 Следующие шаги
 
-1. **Реализация ролевой модели** — полноценная проверка HOST/PLAYER в `TelegramRouter`.
-2. **Система парсинга SIG пакетов** — загрузка реальных пакетов «Своей Игры» в базу PostgreSQL.
-3. **Улучшение UI/UX в Telegram** — красивые инлайн-клавиатуры для табло (BOARD_VIEW), обновление сообщений.
-4. **Интеграция с RabbitMQ Worker** — для надежной рассылки сообщений через брокер.
+1. **Интеграция TelegramSenderWorker** — перевод всей отправки сообщений из `handlers.py` в RabbitMQ-очередь, чтобы `TelegramSenderWorker` рассылал тексты независимо, защищая от лимитов (FloodLimit) Telegram'а.
+2. **Медиафайлы из `.siq`** — расширение `SiqParserWorker` для корректного извлечения и сохранения картинок, аудио и видео из вопросов.
+3. **Реализация ролевой модели** — полноценная проверка прав ведущего (HOST) и игрока (PLAYER) в `TelegramRouter`.
+4. **Улучшение UI/UX в Telegram** — красивые инлайн-клавиатуры для табло выбора вопросов (BOARD_VIEW), авто-обновление сообщений.
