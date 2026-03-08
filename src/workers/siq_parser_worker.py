@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from anyio import Path
 
 from src.application.siq_parser import SiqParser
-from src.infrastructure.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.postgres_repo import PostgresGameRepository
 from src.workers.base import BaseWorker
 
 
