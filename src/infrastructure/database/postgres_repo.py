@@ -18,7 +18,7 @@ class PostgresGameRepository:
     """Работа с игровыми данными через Postgres."""
 
     def __init__(
-        self, session_factory: async_sessionmaker[AsyncSession]
+            self, session_factory: async_sessionmaker[AsyncSession]
     ) -> None:
         self._session_factory = session_factory
 
@@ -31,6 +31,13 @@ class PostgresGameRepository:
                 PackageModel.title == title,
                 PackageModel.author == author
             ).limit(1)
+            result = await session.execute(stmt)
+            return result.first() is not None
+
+    async def get_package_by_id(self, package_id: int) -> bool:
+        """Проверяет существование пакета по ID."""
+        async with self._session_factory() as session:
+            stmt = select(PackageModel.id).where(PackageModel.id == package_id).limit(1)
             result = await session.execute(stmt)
             return result.first() is not None
 
@@ -103,7 +110,7 @@ class PostgresGameRepository:
             ]
 
     async def get_random_question(
-        self, theme_id: int | None = None
+            self, theme_id: int | None = None
     ) -> Question | None:
         async with self._session_factory() as session:
             stmt = (
@@ -133,6 +140,30 @@ class PostgresGameRepository:
             result = await session.execute(stmt)
             return [{"id": row[0], "name": row[1]} for row in result.all()]
 
+    async def get_board_for_round(self, round_id: int) -> list[dict]:
+        """Получает структуру табло для раунда (темы и вопросы).
+
+        Returns:
+            list[dict]: [{'theme': 'Имя', 'questions': [{'id': 1, 'value': 100}, ...]}]
+        """
+        from sqlalchemy.orm import selectinload
+        async with self._session_factory() as session:
+            stmt = (
+                select(ThemeModel)
+                .options(selectinload(ThemeModel.questions))
+                .where(ThemeModel.round_id == round_id)
+                .order_by(ThemeModel.order_index)
+            )
+            result = await session.execute(stmt)
+            themes = result.scalars().all()
+
+            board = []
+            for t in themes:
+                sorted_qs = sorted(t.questions, key=lambda q: q.order_index)
+                qs = [{"id": q.id, "value": q.value} for q in sorted_qs]
+                board.append({"theme": t.name, "questions": qs})
+            return board
+
     # ── Раунды ──────────────────────────────────────
 
     async def get_rounds_by_package(self, package_id: int) -> list[dict]:
@@ -148,6 +179,19 @@ class PostgresGameRepository:
                 for row in result.all()
             ]
 
+    async def get_first_round_id(self, package_id: int) -> int | None:
+        """Получить ID первого раунда пакета."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(RoundModel.id)
+                .where(RoundModel.package_id == package_id)
+                .order_by(RoundModel.order_index)
+                .limit(1)
+            )
+            result = await session.execute(stmt)
+            row = result.first()
+            return row[0] if row else None
+
     # ── Маппинг ORM → Domain Entity ────────────────
 
     @staticmethod
@@ -160,3 +204,4 @@ class PostgresGameRepository:
             value=model.value,
             question_type=QuestionType(model.question_type),
         )
+

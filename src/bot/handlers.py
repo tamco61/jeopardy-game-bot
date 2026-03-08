@@ -26,7 +26,7 @@ from src.domain.room import Phase
 from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
-from src.infrastructure.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.postgres_repo import PostgresGameRepository
 
 
 class TelegramRouter:

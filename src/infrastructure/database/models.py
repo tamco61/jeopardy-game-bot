@@ -11,6 +11,7 @@ from src.infrastructure.database.base import Base
 #  ПОЛЬЗОВАТЕЛИ
 # ────────────────────────────────────────────────────
 
+
 class UserModel(Base):
     """Telegram-пользователь (игрок)."""
 
@@ -138,6 +139,7 @@ class QuestionModel(Base):
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     theme: Mapped[ThemeModel] = relationship(back_populates="questions")
+
 
 # ────────────────────────────────────────────────────
 #  ИСТОРИЯ ИГР (Холодный стейт — итоги матчей)
