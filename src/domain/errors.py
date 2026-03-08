@@ -1,6 +1,3 @@
-"""Базовое исключение доменного слоя."""
-
-
 class DomainError(Exception):
     """Все бизнес-ошибки наследуются от этого класса."""
 
@@ -8,8 +5,6 @@ class DomainError(Exception):
         self.message = message
         super().__init__(self.message)
 
-
-"""Исключение: недопустимый переход FSM."""
 
 class InvalidTransitionError(DomainError):
     """Попытка перехода в невалидное состояние FSM."""
@@ -22,8 +17,6 @@ class InvalidTransitionError(DomainError):
         self.attempted_action = attempted_action
 
 
-"""Исключение: игрок заблокирован на текущий вопрос."""
-
 class PlayerBlockedError(DomainError):
     """Заблокированный игрок пытается нажать кнопку."""
 
@@ -31,8 +24,6 @@ class PlayerBlockedError(DomainError):
         super().__init__(f"Игрок {player_name} заблокирован на этот вопрос")
         self.player_name = player_name
 
-
-"""Исключение: не найден игрок."""
 
 class PlayerNotFoundError(DomainError):
     """Игрок не найден в комнате."""
