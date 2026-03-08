@@ -265,6 +265,16 @@ class PostgresGameRepository:
 
     # ── Пакеты ──────────────────────────────────────
 
+    async def check_package_exists(self, title: str, author: str) -> bool:
+        """Проверяет, существует ли уже пакет с таким же названием и автором."""
+        async with self._session_factory() as session:
+            stmt = select(PackageModel.id).where(
+                PackageModel.title == title,
+                PackageModel.author == author
+            ).limit(1)
+            result = await session.execute(stmt)
+            return result.first() is not None
+
     async def save_package(self, package_dto: PackageDTO) -> int:
         """Сохранить распарсенный пакет и все вложенные сущности."""
         async with self._session_factory() as session:

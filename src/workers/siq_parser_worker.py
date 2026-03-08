@@ -46,7 +46,19 @@ class SiqParserWorker(BaseWorker):
                 len(package_dto.rounds),
             )
 
-            # 2. Сохранение в БД
+            # 2. Проверка на дубликаты
+            exists = await self._repo.check_package_exists(package_dto.title, package_dto.author)
+            if exists:
+                self._log.warning(
+                    "Пакет '%s' (Автор: '%s') уже существует в БД! Пропускаем сохранение.",
+                    package_dto.title,
+                    package_dto.author,
+                )
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                return
+
+            # 3. Сохранение в БД
             package_id = await self._repo.save_package(package_dto)
             self._log.info(
                 "Пакет '%s' успешно сохранен в БД с ID %d",
@@ -54,9 +66,10 @@ class SiqParserWorker(BaseWorker):
                 package_id,
             )
 
-            # Опционально: можно тут же удалять файл после успешного парсинга:
-            # os.remove(file_path)
-            # self._log.info("Временный файл %s удален.", file_path)
+            # Удаляем временный файл после успешной загрузки
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                self._log.info("Временный файл %s удален.", file_path)
 
         except Exception as e:
             self._log.exception(
