@@ -11,9 +11,6 @@ class DomainError(Exception):
 
 """Исключение: недопустимый переход FSM."""
 
-from src.domain.errors import DomainError
-
-
 class InvalidTransitionError(DomainError):
     """Попытка перехода в невалидное состояние FSM."""
 
@@ -27,9 +24,6 @@ class InvalidTransitionError(DomainError):
 
 """Исключение: игрок заблокирован на текущий вопрос."""
 
-from src.domain.errors import DomainError
-
-
 class PlayerBlockedError(DomainError):
     """Заблокированный игрок пытается нажать кнопку."""
 
@@ -39,9 +33,6 @@ class PlayerBlockedError(DomainError):
 
 
 """Исключение: не найден игрок."""
-
-from src.domain.errors import DomainError
-
 
 class PlayerNotFoundError(DomainError):
     """Игрок не найден в комнате."""
