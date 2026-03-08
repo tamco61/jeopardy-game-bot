@@ -1,15 +1,17 @@
 """Use Case: Выбор вопроса на табло (BOARD_VIEW)."""
 
 from pydantic import BaseModel
+
 from src.domain.errors import DomainError
 from src.domain.question import Question, QuestionType
-from src.domain.room import Room, Phase
+from src.domain.room import Phase, Room
 from src.infrastructure.postgres_repo import PostgresGameRepository
 from src.infrastructure.redis_repo import RedisStateRepository
 
 
 class SelectQuestionDTO(BaseModel):
     """Данные для выбора вопроса."""
+
     room_id: str
     player_id: str
     question_id: int
@@ -17,6 +19,7 @@ class SelectQuestionDTO(BaseModel):
 
 class SelectQuestionResult(BaseModel):
     """Результат выбора вопроса."""
+
     phase: str
     question_text: str
     question_value: int
@@ -24,7 +27,7 @@ class SelectQuestionResult(BaseModel):
 
 class SelectQuestionUseCase:
     """Сценарий выбора вопроса игроком с табло.
-    
+
     Оркестрация:
     1. Получить комнату из Redis.
     2. Проверить, имеет ли право игрок выбирать вопрос (опционально, в MVP опускаем строгие проверки очередности).
@@ -58,7 +61,7 @@ class SelectQuestionUseCase:
                 text="Заглушка вопроса (MVP)",
                 answer="ответ",
                 value=100,
-                question_type=QuestionType.NORMAL
+                question_type=QuestionType.NORMAL,
             )
 
         if not question:

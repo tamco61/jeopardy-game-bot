@@ -12,6 +12,7 @@ class TelegramHttpClient:
     """Тонкая обёртка над aiohttp для вызовов Telegram Bot API."""
 
     def __init__(self, bot_token: str) -> None:
+        self._bot_token = bot_token
         self._base_url = f"https://api.telegram.org/bot{bot_token}"
         self._session: ClientSession | None = None
 
@@ -89,6 +90,22 @@ class TelegramHttpClient:
     async def delete_webhook(self) -> dict:
         """Удалить webhook (нужно перед запуском long polling)."""
         return await self._post("deleteWebhook", {})
+
+    async def get_file(self, file_id: str) -> dict:
+        """Получить информацию о файле."""
+        return await self._post("getFile", {"file_id": file_id})
+
+    async def download_file(self, file_path: str, destination: str) -> None:
+        """Скачать файл."""
+        if self._session is None or self._session.closed:
+            raise RuntimeError("HTTP-сессия не открыта. Вызовите start().")
+
+        url = f"https://api.telegram.org/file/bot{self._bot_token}/{file_path}"
+        async with self._session.get(url) as resp:
+            resp.raise_for_status()
+            with open(destination, "wb") as f:
+                async for chunk in resp.content.iter_chunked(8192):
+                    f.write(chunk)
 
     # ── Внутренний HTTP-метод ───────────────────────
 

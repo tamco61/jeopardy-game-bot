@@ -13,24 +13,29 @@ import redis.asyncio as aioredis
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.application.lobby_management import (
     CreateLobbyUseCase,
     JoinLobbyUseCase,
-    ReadyUseCase,
     LeaveLobbyUseCase,
+    ReadyUseCase,
 )
-from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.application.press_button import PressButtonUseCase
 from src.application.select_question import SelectQuestionUseCase
 from src.application.special_events import (
+    CloseFinalStakeUseCase,
     PlaceStakeUseCase,
     StartFinalStakeUseCase,
-    CloseFinalStakeUseCase,
 )
 from src.application.start_game import StartGameUseCase
 from src.application.submit_answer import SubmitAnswerUseCase
 from src.bot.handlers import TelegramRouter
-from src.infrastructure.postgres_repo import build_engine, build_session_factory, PostgresGameRepository
+from src.infrastructure.postgres_repo import (
+    PostgresGameRepository,
+    build_engine,
+    build_session_factory,
+)
+from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
 from src.shared.config import AppSettings
@@ -60,16 +65,47 @@ async def main() -> None:
         print("✅ Подключено к Redis")
     except Exception as e:
         print(f"⚠️ Ошибка подключения к Redis: {e}")
+
         # Создадим dummy repo если нет редиса, чтобы код хоть как-то не падал сразу при сборке DI
         class DummyRedisRepo(RedisStateRepository):
-            def __init__(self): pass
-            async def get_room(self, *args, **kwargs): return None
-            async def save_room(self, *args, **kwargs): pass
-            async def delete_room(self, *args, **kwargs): pass
-            async def try_capture_button(self, *args, **kwargs): return False
-            async def release_button(self, *args, **kwargs): pass
-        
+            def __init__(self):
+                pass
+
+            async def get_room(self, *args, **kwargs):
+                return None
+
+            async def save_room(self, *args, **kwargs):
+                pass
+
+            async def delete_room(self, *args, **kwargs):
+                pass
+
+            async def try_capture_button(self, *args, **kwargs):
+                return False
+
+            async def release_button(self, *args, **kwargs):
+                pass
+
         state_repo = DummyRedisRepo()
+
+    try:
+        rabbitmq = RabbitMQPublisher(settings.rabbitmq_url)
+        await rabbitmq.connect()
+        print("✅ Подключено к RabbitMQ")
+    except Exception as e:
+        print(f"⚠️ Ошибка подключения к RabbitMQ: {e}")
+
+        class DummyRabbit:
+            async def publish(self, *args, **kwargs):
+                pass
+
+            async def connect(self):
+                pass
+
+            async def disconnect(self):
+                pass
+
+        rabbitmq = DummyRabbit()
 
     telegram_client = TelegramHttpClient(settings.telegram_bot_token)
 
@@ -78,18 +114,20 @@ async def main() -> None:
     join_lobby_uc = JoinLobbyUseCase(state_repo)
     ready_uc = ReadyUseCase(state_repo)
     leave_lobby_uc = LeaveLobbyUseCase(state_repo)
-    
+
     pause_uc = PauseGameUseCase(state_repo)
     unpause_uc = UnpauseGameUseCase(state_repo)
-    
+
     press_uc = PressButtonUseCase(state_repo)
     start_game_uc = StartGameUseCase(
         game_repo=game_repo,
         state_repo=state_repo,
     )
     submit_answer_uc = SubmitAnswerUseCase(state_repo)
-    select_question_uc = SelectQuestionUseCase(game_repo=game_repo, state_repo=state_repo)
-    
+    select_question_uc = SelectQuestionUseCase(
+        game_repo=game_repo, state_repo=state_repo
+    )
+
     place_stake_uc = PlaceStakeUseCase(state_repo)
     start_final_stake_uc = StartFinalStakeUseCase(state_repo)
     close_final_stake_uc = CloseFinalStakeUseCase(state_repo)
@@ -110,6 +148,7 @@ async def main() -> None:
         start_final_stake_uc=start_final_stake_uc,
         close_final_stake_uc=close_final_stake_uc,
         state_repo=state_repo,
+        rabbit_publisher=rabbitmq,
     )
 
     await telegram_client.start()
@@ -143,6 +182,7 @@ async def main() -> None:
                 await asyncio.sleep(5)
     finally:
         await telegram_client.close()
+        await rabbitmq.disconnect()
 
 
 if __name__ == "__main__":

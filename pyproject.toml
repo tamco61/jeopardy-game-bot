@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.9",
     "alembic>=1.18.4",
+    "anyio>=4.12.1",
     "asyncpg>=0.31.0",
     "pydantic-settings>=2.13.1",
     "ruff>=0.15.5",
@@ -109,6 +110,7 @@ extend-select = [
 # Правила, которые следует добавить к указанным в "ignore=[]" конфига или "--ignore" команды
 extend-ignore = [
     # Могут быть излишними в нашей ситуации
+    "E501",     # https://docs.astral.sh/ruff/rules/line-too-long
     "D1",       # https://docs.astral.sh/ruff/rules/#pydocstyle-d
     "D205",     # https://docs.astral.sh/ruff/rules/blank-line-after-summary
     "D415",     # https://docs.astral.sh/ruff/rules/ends-in-punctuation

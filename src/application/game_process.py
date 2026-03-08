@@ -1,7 +1,6 @@
 """Use Cases для игрового процесса (Пауза, Настройки)."""
 
 from src.domain.errors import DomainError
-from src.domain.room import Room, Phase
 from src.infrastructure.redis_repo import RedisStateRepository
 
 
@@ -30,7 +29,7 @@ class UnpauseGameUseCase:
 
     async def execute(self, room_id: str, host_id: str) -> str:
         """Снимает паузу и возвращает комнату в исходное состояние.
-        
+
         Returns:
             Имя фазы, в которую вернулась комната.
         """

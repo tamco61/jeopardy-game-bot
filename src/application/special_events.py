@@ -1,7 +1,7 @@
 """Use Cases для спец-ивентов (Аукцион, Ставки на финал)."""
 
 from src.domain.errors import DomainError
-from src.domain.room import Room, Phase
+from src.domain.room import Phase, Room
 from src.infrastructure.redis_repo import RedisStateRepository
 
 
@@ -19,7 +19,9 @@ class PlaceStakeUseCase:
         # MVP: В комнате сейчас реализован place_stake только для финала (FINAL_STAKE).
         # Если нужно поддерживать ставки на аукционе, нужно будет расширить FSM.
         if room.phase != Phase.FINAL_STAKE:
-            raise DomainError(f"Ставки недоступны в текущей фазе: {room.phase.value}")
+            raise DomainError(
+                f"Ставки недоступны в текущей фазе: {room.phase.value}"
+            )
 
         room.place_stake(player_id, stake)
         await self._state_repo.save_room(room)
