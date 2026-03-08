@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.9",
     "alembic>=1.18.4",
+    "anyio>=4.12.1",
     "asyncpg>=0.31.0",
     "pydantic-settings>=2.13.1",
     "ruff>=0.15.5",

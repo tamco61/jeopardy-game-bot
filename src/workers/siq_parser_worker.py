@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from anyio import Path
+
 from src.application.siq_parser import SiqParser
 from src.infrastructure.postgres_repo import PostgresGameRepository
 from src.workers.base import BaseWorker
@@ -30,7 +32,7 @@ class SiqParserWorker(BaseWorker):
         """Обработать сообщение с путем к файлу .siq."""
         file_path = message.get("file_path")
 
-        if not file_path or not os.path.exists(file_path):
+        if not file_path or not await Path(file_path).exists():
             self._log.error("Файл не найден или путь не указан: %s", file_path)
             return
 
@@ -70,6 +72,6 @@ class SiqParserWorker(BaseWorker):
             )
             raise
         finally:
-            if os.path.exists(file_path):
-                os.remove(file_path)
+            if file_path and await Path(file_path).exists():
+                await Path(file_path).unlink()
                 self._log.info("Временный файл %s удален.", file_path)
