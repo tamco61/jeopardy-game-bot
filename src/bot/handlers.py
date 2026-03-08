@@ -26,6 +26,7 @@ from src.domain.room import Phase
 from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
+from src.infrastructure.postgres_repo import PostgresGameRepository
 
 
 class TelegramRouter:
@@ -34,6 +35,7 @@ class TelegramRouter:
     def __init__(
         self,
         telegram_client: TelegramHttpClient,
+        game_repo: PostgresGameRepository,
         start_game_uc: StartGameUseCase,
         press_button_uc: PressButtonUseCase,
         submit_answer_uc: SubmitAnswerUseCase,
@@ -51,6 +53,7 @@ class TelegramRouter:
         rabbit_publisher: RabbitMQPublisher,
     ) -> None:
         self._tg = telegram_client
+        self._game_repo = game_repo
         self._start_game = start_game_uc
         self._press_button = press_button_uc
         self._submit_answer = submit_answer_uc
@@ -165,6 +168,12 @@ class TelegramRouter:
                 try:
                     result = await self._start_game.execute(start_dto)
                     await self._tg.send_message(chat_id, result.message)
+                    
+                    # После старта рендерим табло
+                    room = await self._state_repo.get_room("room_1")
+                    if room and room.phase == Phase.BOARD_VIEW:
+                        await self._render_board(chat_id, room)
+
                 except Exception as e:
                     await self._tg.send_message(
                         chat_id, f"Ошибка старта игры: {e}"
@@ -287,6 +296,11 @@ class TelegramRouter:
                             message_id=message_id,
                             text=f"Ведущий вынес вердикт: {'✅ Верно' if is_correct else '❌ Неверно'}",
                         )
+
+                        # Если вопрос исчерпан и мы вернулись на табло
+                        if room.phase == Phase.BOARD_VIEW:
+                            await self._render_board(chat_id, room)
+                            
                     except Exception as e:
                         print(f"Ошибка при вынесении вердикта: {e}")
 
@@ -517,6 +531,44 @@ class TelegramRouter:
                 chat_id, f"Ошибка при скачивании/обработке пакета: {e}"
             )
             print(f"Ошибка загрузки SIQ: {e}")
+
+
+    async def _render_board(self, chat_id: int, room: Room) -> None:
+        """Отрисовывает актуальное табло команде через Inline Keyboard.
+        
+        Каждая строка — это тема, первая кнопка — название темы (не кликабельна),
+        остальные кнопки — доступные стоимости вопросов. Сыгранные заменяются на ❌.
+        """
+        if not room.current_round_id:
+            await self._tg.send_message(chat_id, "❌ Раунд не назначен. Свяжитесь с ведущим.")
+            return
+
+        board_data = await self._game_repo.get_board_for_round(room.current_round_id)
+
+        if not board_data:
+            await self._tg.send_message(chat_id, "⚠️ Табло пустое. Возможно, пакет не содержит вопросов.")
+            return
+
+        keyboard = []
+        for theme in board_data:
+            row = []
+            # Укорачиваем название темы если оно слишком длинное
+            name = theme["theme"]
+            theme_name = (name[:15] + "..") if len(name) > 17 else name
+            row.append({"text": theme_name, "callback_data": "ignore"})
+
+            for q in theme["questions"]:
+                if q["id"] in room.closed_questions:
+                    row.append({"text": "❌", "callback_data": "ignore"})
+                else:
+                    row.append({"text": str(q["value"]), "callback_data": f"select_question:{q['id']}"})
+            keyboard.append(row)
+
+        await self._tg.send_message(
+            chat_id,
+            "🎮 **Выберите вопрос:**",
+            reply_markup={"inline_keyboard": keyboard},
+        )
 
 
 class WebSocketRouter:

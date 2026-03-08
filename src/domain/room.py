@@ -60,6 +60,11 @@ class Room:
     phase: Phase = Phase.LOBBY
     players: dict[str, Player] = field(default_factory=dict)
 
+    # Привязка пакета и трекинг состояния по доске
+    package_id: int | None = None
+    current_round_id: int | None = None
+    closed_questions: list[int] = field(default_factory=list)
+
     # Текущий вопрос (заполняется при выборе с табло)
     current_question: Question | None = None
     answering_player_id: str | None = None
@@ -349,7 +354,10 @@ class Room:
         )
 
     def _end_question(self) -> None:
-        """Завершить текущий вопрос, вернуться к табло."""
+        """Завершить текущий вопрос, закрыть его на табло и вернуться."""
+        if self.current_question and self.current_question.question_id:
+            self.closed_questions.append(self.current_question.question_id)
+            
         self.current_question = None
         self.answering_player_id = None
         self.phase = Phase.BOARD_VIEW

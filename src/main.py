@@ -131,6 +131,7 @@ async def main() -> None:
 
     router = TelegramRouter(
         telegram_client=telegram_client,
+        game_repo=game_repo,
         start_game_uc=start_game_uc,
         press_button_uc=press_uc,
         submit_answer_uc=submit_answer_uc,
