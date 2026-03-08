@@ -1,5 +1,7 @@
 import asyncio
 
+import os
+
 from src.application.lobby_management import (
     BaseLobbyDTO,
     CreateLobbyUseCase,
@@ -21,6 +23,7 @@ from src.domain.player import Player
 from src.domain.room import Phase
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
+from src.infrastructure.rabbit import RabbitMQPublisher
 
 
 class TelegramRouter:
@@ -43,6 +46,7 @@ class TelegramRouter:
         start_final_stake_uc: StartFinalStakeUseCase,
         close_final_stake_uc: CloseFinalStakeUseCase,
         state_repo: RedisStateRepository,
+        rabbit_publisher: RabbitMQPublisher,
     ) -> None:
         self._tg = telegram_client
         self._start_game = start_game_uc
@@ -59,12 +63,17 @@ class TelegramRouter:
         self._start_final_stake = start_final_stake_uc
         self._close_final_stake = close_final_stake_uc
         self._state_repo = state_repo
+        self._rabbit = rabbit_publisher
 
     async def handle_update(self, update: dict) -> None:
         print(f"📩 Получен update: {update.get('update_id')}")
 
         message: dict | None = update.get("message")
         if message is not None:
+            if "document" in message:
+                await self._handle_document(message)
+                return
+
             text: str = (message.get("text") or "").strip()
             chat_id: int = message["chat"]["id"]
 
@@ -80,6 +89,13 @@ class TelegramRouter:
                 username=username,
                 first_name=user.get("first_name", "")
             )
+
+            if text == "/upload_pack":
+                await self._tg.send_message(
+                    chat_id, 
+                    "📂 Чтобы загрузить свой пакет вопросов, отправьте файл `.siq` и в поле подписи (caption) напишите `/upload_pack`."
+                )
+                return
 
             if text == "/create_lobby":
                 try:
@@ -357,6 +373,47 @@ class TelegramRouter:
             text="Жмите кнопку!",
             reply_markup=green_markup,
         )
+
+    async def _handle_document(self, message: dict) -> None:
+        chat_id = message["chat"]["id"]
+        document = message["document"]
+        caption = message.get("caption", "").strip()
+        
+        if not caption.startswith("/upload_pack"):
+            return
+
+        file_name = document.get("file_name", "")
+
+        if not file_name.endswith(".siq"):
+            return
+
+        file_id = document["file_id"]
+
+        try:
+            # Получаем информацию о файле
+            file_info = await self._tg.get_file(file_id)
+            if not file_info.get("ok"):
+                await self._tg.send_message(chat_id, "Ошибка получения файла от Telegram.")
+                return
+
+            file_path = file_info["result"]["file_path"]
+
+            # Скачиваем файл во временную директорию
+            os.makedirs("data/uploads", exist_ok=True)
+            local_path = os.path.abspath(f"data/uploads/{file_id}.siq")
+
+            await self._tg.send_message(chat_id, f"Скачиваю сик-пак '{file_name}'...")
+            await self._tg.download_file(file_path, local_path)
+
+            # Публикуем задачу на парсинг в RabbitMQ
+            # Мы используем routing_key для передачи в соответствующую очередь
+            await self._rabbit.publish("siq_parse_tasks", {"file_path": local_path})
+
+            await self._tg.send_message(chat_id, f"Пакет '{file_name}' успешно загружен и отправлен в очередь на обработку!")
+        except Exception as e:
+            await self._tg.send_message(chat_id, f"Ошибка при скачивании/обработке пакета: {e}")
+            print(f"Ошибка загрузки SIQ: {e}")
+
 
 class WebSocketRouter:
     """Обработчик WebSocket-соединений."""
