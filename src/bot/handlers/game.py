@@ -1,5 +1,6 @@
 import asyncio
 import random
+import time
 
 import redis.asyncio as aioredis
 from sqlalchemy.exc import SQLAlchemyError
@@ -50,6 +51,12 @@ class GameHandler:
         self._start_final_stake = start_final_stake_uc
         self._place_stake = place_stake_uc
         self._close_final_stake = close_final_stake_uc
+        
+        # Таймеры: room_id -> Task
+        self._answer_timers: dict[str, asyncio.Task] = {}
+        self._question_timers: dict[str, asyncio.Task] = {}
+        # Оставшееся время на раздумья: room_id -> float
+        self._remaining_thinking_time: dict[str, float] = {}
 
     async def handle_start_game(self, chat_id: int, player_id: str, user_telegram_id: int) -> None:
         # todo: Временно хардкодим pack_id=1
@@ -94,6 +101,15 @@ class GameHandler:
                 )
                 if "result" in sent_msg:
                     msg_id = sent_msg["result"]["message_id"]
+                    # Сохраняем ID сообщения с кнопкой сразу
+                    try:
+                        room = await self._state_repo.get_room("room_1")
+                        if room:
+                            room.last_buzzer_message_id = msg_id
+                            await self._state_repo.save_room(room)
+                    except Exception as e:
+                        logger.error(f"Error saving buzzer msg id: {e}")
+
                     asyncio.create_task(
                         self._activate_button(room.chat_id, msg_id, random.uniform(2.0, 5.0))
                     )
@@ -119,6 +135,10 @@ class GameHandler:
         result = await self._press_button.execute("room_1", player_id)
 
         if result.captured:
+            # Остановка общего таймера вопроса
+            if "room_1" in self._question_timers:
+                self._question_timers["room_1"].cancel()
+            
             room_now = await self._state_repo.get_room("room_1")
             if room_now:
                 room_now.answering_player_telegram_id = int(player_id)
@@ -134,9 +154,13 @@ class GameHandler:
 
                 await self._ui._tg.send_message(
                     chat_id=int(player_id),
-                    text=f"❓ Ты первый! Вопрос:\n\n*{q_text}*\n\nНапиши ответ прямо в это ЛС."
+                    text=f"❓ Ты первый! Вопрос:\n\n*{q_text}*\n\nНапиши ответ прямо в это ЛС. У тебя 10 секунд!"
                 )
                 await self._ui._tg.answer_callback_query(callback_query_id, text="Твой ответ!")
+
+                # Запуск таймера на ответ (10 сек)
+                tmr = asyncio.create_task(self._answer_timeout_task("room_1", player_id, username))
+                self._answer_timers["room_1"] = tmr
         else:
             await self._ui._tg.answer_callback_query(
                 callback_query_id=callback_query_id,
@@ -146,6 +170,11 @@ class GameHandler:
     async def handle_submit_answer(self, chat_id: int, player_id: str, username: str, text: str, room: Room, is_private: bool) -> None:
         dto = SubmitAnswerDTO(room_id="room_1", player_id=player_id, answer=text)
         try:
+            # Отменяем таймер на ответ, так как ответ пришел
+            if "room_1" in self._answer_timers:
+                self._answer_timers["room_1"].cancel()
+                del self._answer_timers["room_1"]
+
             await self._submit_answer.execute(dto)
             room = await self._state_repo.get_room("room_1")
             if not room: return
@@ -207,7 +236,14 @@ class GameHandler:
                 if room.phase == Phase.BOARD_VIEW:
                     await self.render_board(room.chat_id, room)
                 elif room.phase == Phase.WAITING_FOR_PUSH:
+                    # Восстанавливаем кнопку и таймер вопроса
                     await self._ui._tg.send_message(room.chat_id, "❌ Неверно! Кто ещё?")
+                    if room.last_buzzer_message_id:
+                        await self._ui.render_buzzer(room.chat_id, room.last_buzzer_message_id)
+                    
+                    # Возобновляем общий таймер вопроса
+                    tmr = asyncio.create_task(self._question_timeout_task("room_1", room.chat_id))
+                    self._question_timers["room_1"] = tmr
 
             except (SQLAlchemyError, aioredis.RedisError) as e:
                 logger.error(f"Ошибка при вынесении вердикта: {e}")
@@ -226,6 +262,55 @@ class GameHandler:
 
         markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": "btn_room_1"}]]}
         await self._ui._tg.edit_message_text(chat_id, message_id, "Жмите кнопку!", reply_markup=markup)
+
+        # Запуск общего таймера вопроса (10 сек)
+        self._remaining_thinking_time["room_1"] = 10.0
+        tmr = asyncio.create_task(self._question_timeout_task("room_1", chat_id))
+        self._question_timers["room_1"] = tmr
+
+    async def _answer_timeout_task(self, room_id: str, player_id: str, username: str) -> None:
+        """Таймер на ввод текста ответа (10 сек)."""
+        try:
+            await asyncio.sleep(10)
+            logger.info(f"⏰ Таймер ответа истек для {username}")
+            
+            room = await self._state_repo.get_room(room_id)
+            if room and room.phase == Phase.ANSWERING and room.answering_player_id == player_id:
+                # Имитируем неверный ответ
+                await self._ui._tg.send_message(room.chat_id, f"⏰ Время вышло! @{username} не успел ответить.")
+                # Вызываем логику неверного вердикта
+                await self.handle_verdict(room.host_telegram_id, 0, f"verdict:no:{player_id}", room)
+        except asyncio.CancelledError:
+            pass
+
+    async def _question_timeout_task(self, room_id: str, chat_id: int) -> None:
+        """Общий таймер на обдумывание вопроса (10 сек, не сбрасывается)."""
+        start_time = time.time()
+        timeout = self._remaining_thinking_time.get(room_id, 10.0)
+        
+        try:
+            await asyncio.sleep(timeout)
+            # Если дождались - значит время вышло
+            logger.info(f"⏰ Общее время на вопрос {room_id} истекло.")
+            self._remaining_thinking_time[room_id] = 0
+            
+            room = await self._state_repo.get_room(room_id)
+            if room and room.phase == Phase.WAITING_FOR_PUSH:
+                await self._ui._tg.send_message(chat_id, "⏰ Время истекло! Никто не ответил.")
+                # Закрываем вопрос через room logic
+                # Напрямую вызовем закрытие
+                room.closed_questions.append(room.current_question.question_id)
+                room.current_question = None
+                room.phase = Phase.BOARD_VIEW
+                await self._state_repo.save_room(room)
+                await self._state_repo.release_button(room_id)
+                
+                await self.render_board(chat_id, room)
+        except asyncio.CancelledError:
+            # Считаем сколько времени прошло и вычитаем
+            elapsed = time.time() - start_time
+            self._remaining_thinking_time[room_id] = max(0, timeout - elapsed)
+            logger.debug(f"Таймер вопроса приостановлен. Осталось: {self._remaining_thinking_time[room_id]:.1f}с")
 
     async def handle_place_stake(self, chat_id: int, player_id: str, username: str, text: str) -> None:
         try:

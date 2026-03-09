@@ -80,3 +80,8 @@ class JeopardyUI:
             chat_id,
             f"⚖️ Ведущий вынес вердикт: {verdict_text}",
         )
+
+    async def render_buzzer(self, chat_id: int, message_id: int, text: str = "Жмите кнопку!") -> None:
+        """Восстановить кнопку ответа на сообщении."""
+        markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": "btn_room_1"}]]}
+        await self._tg.edit_message_text(chat_id, message_id, text, reply_markup=markup)

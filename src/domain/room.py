@@ -70,6 +70,7 @@ class Room(BaseModel):
     closed_questions: list[int] = Field(default_factory=list)
     selecting_player_id: str | None = None
     last_board_message_id: int | None = None
+    last_buzzer_message_id: int | None = None
 
     # Текущий вопрос (заполняется при выборе с табло)
     current_question: Question | None = None
