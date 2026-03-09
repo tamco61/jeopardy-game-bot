@@ -66,6 +66,9 @@ class SelectQuestionUseCase:
         if not question:
             raise DomainError(f"Вопрос {dto.question_id} не найден.")
 
+        if room.selecting_player_id and room.selecting_player_id != dto.player_id:
+            raise DomainError("Только выбранный игрок может выбирать вопрос.")
+
         room.select_question(question)
         await self._state_repo.save_room(room)
 

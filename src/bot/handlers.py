@@ -360,7 +360,15 @@ class TelegramRouter:
                             text=f"Ведущий вынес вердикт: {verdict_text}",
                         )
 
-                        # Если вернулись на табло — отправляем табло в ГРУППУ
+                        # Проверяем не закончился ли раунд
+                        if room.current_round_id:
+                            board_data = await self._game_repo.get_board_for_round(room.current_round_id)
+                            all_q_ids = [q["id"] for theme in board_data for q in theme["questions"]]
+                            
+                            if room.is_round_finished(all_q_ids):
+                                await self._handle_round_transition(room)
+
+                        # Если вернулись на табло — обновляем табло в ГРУППЕ
                         if room.phase == Phase.BOARD_VIEW:
                             await self._render_board(room.chat_id, room)
                         # Если неверно — ещё кто-то может ответить
@@ -621,6 +629,54 @@ class TelegramRouter:
             print(f"Ошибка загрузки SIQ: {e}")
 
 
+    async def _handle_round_transition(self, room: Room) -> None:
+        """Переходит к следующему раунду или финалу."""
+        if not room.package_id:
+            return
+
+        rounds: list[dict] = await self._game_repo.get_rounds_by_package(room.package_id)
+        current_idx = next((i for i, r in enumerate(rounds) if r["id"] == room.current_round_id), -1)
+
+        if current_idx != -1 and current_idx + 1 < len(rounds):
+            next_round = rounds[current_idx + 1]
+            if next_round["is_final"]:
+                # Финальный раунд: берем первый доступный вопрос
+                board = await self._game_repo.get_board_for_round(next_round["id"])
+                if board and board[0]["questions"]:
+                    q_data = board[0]["questions"][0]
+                    question = await self._game_repo.get_question_by_id(q_data["id"])
+                    if question:
+                        room.start_final_round(question)
+                        await self._tg.send_message(room.chat_id, "🏆 Время ФИНАЛЬНОГО РАУНДА!")
+                        await self._tg.send_message(room.chat_id, f"Тема финала: *{question.theme_name}*")
+                        
+                        kb = {
+                            "inline_keyboard": [
+                                [
+                                    {
+                                        "text": "🏁 Прием ставок",
+                                        "callback_data": "final_start_stakes",
+                                    }
+                                ]
+                            ]
+                        }
+                        await self._tg.send_message(
+                            room.chat_id,
+                            "Ведущий: откройте прием ставок.",
+                            reply_markup=kb,
+                        )
+            else:
+                # Обычный раунд
+                room.current_round_id = next_round["id"]
+                room.last_board_message_id = None  # Новое табло будет отправлено заново
+                await self._tg.send_message(room.chat_id, f"🔔 Раунд завершен! Переходим к: {next_round['name']}")
+                # Состояние Phase.BOARD_VIEW уже установлено в _end_question
+        else:
+            # Пакет закончился
+            await self._tg.send_message(room.chat_id, "🏁 Пакет пройден! Игра окончена.")
+            room.phase = Phase.RESULTS
+
+
     async def _render_board(self, chat_id: int, room: Room) -> None:
         """Отрисовывает актуальное табло команде через Inline Keyboard.
         
@@ -640,7 +696,6 @@ class TelegramRouter:
         keyboard = []
         for theme in board_data:
             row = []
-            # Укорачиваем название темы если оно слишком длинное
             name = theme["theme"]
             theme_name = (name[:15] + "..") if len(name) > 17 else name
             row.append({"text": theme_name, "callback_data": "ignore"})
@@ -652,11 +707,39 @@ class TelegramRouter:
                     row.append({"text": str(q["value"]), "callback_data": f"select_question:{q['id']}"})
             keyboard.append(row)
 
-        await self._tg.send_message(
+        # Формируем счет
+        scoreboard = "\n\n📊 **Счет:**\n"
+        for p in room.players.values():
+            prefix = "👉" if p.player_id == room.selecting_player_id else "👤"
+            scoreboard += f"{prefix} {p.display_name}: {p.score}\n"
+        
+        if room.selecting_player_id:
+            picker = room.get_player(room.selecting_player_id)
+            scoreboard += f"\n🤔 Командует @{picker.username}!"
+
+        text = f"🎮 **Табло (Раунд {room.current_round_id})**" + scoreboard
+
+        # Пытаемся редактировать предыдущее сообщение, чтобы не спамить
+        if room.last_board_message_id:
+            try:
+                await self._tg.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=room.last_board_message_id,
+                    text=text,
+                    reply_markup={"inline_keyboard": keyboard},
+                )
+                return
+            except Exception as e:
+                print(f"DEBUG: Could not edit board message: {e}")
+
+        sent_msg = await self._tg.send_message(
             chat_id,
-            "🎮 **Выберите вопрос:**",
+            text,
             reply_markup={"inline_keyboard": keyboard},
         )
+        if "result" in sent_msg:
+            room.last_board_message_id = sent_msg["result"]["message_id"]
+            await self._state_repo.save_room(room)
 
 
 class WebSocketRouter:
