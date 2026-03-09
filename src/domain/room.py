@@ -59,6 +59,10 @@ class Room(BaseModel):
     phase: Phase = Phase.LOBBY
     players: dict[str, Player] = Field(default_factory=dict)
 
+    # Ведущий (HOST)
+    host_id: str = ""
+    host_telegram_id: int = 0
+
     # Привязка пакета и трекинг состояния по доске
     package_id: int | None = None
     current_round_id: int | None = None
@@ -67,6 +71,7 @@ class Room(BaseModel):
     # Текущий вопрос (заполняется при выборе с табло)
     current_question: Question | None = None
     answering_player_id: str | None = None
+    answering_player_telegram_id: int | None = None  # для отправки ЛС отвечающему
     player_answer: str | None = None
 
     # Финальный раунд

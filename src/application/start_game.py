@@ -11,6 +11,7 @@ class StartGameDTO(BaseModel):
     lobby_id: str
     chat_id: int
     host_player_id: str
+    host_telegram_id: int
     pack_id: int
 
 
@@ -54,11 +55,16 @@ class StartGameUseCase:
             raise ValueError(f"В пакете {dto.pack_id} нет раундов.")
 
         # 2. Инициализация сущности Room
-        room = Room(
-            room_id=dto.lobby_id, chat_id=dto.chat_id, phase=Phase.LOBBY
-        )
+        room = await self._state_repo.get_room(dto.lobby_id)
+        if not room:
+            # Fallback room creation
+            room = Room(
+                room_id=dto.lobby_id, chat_id=dto.chat_id, phase=Phase.LOBBY
+            )
+            room.host_id = dto.host_player_id
+            room.host_telegram_id = dto.host_telegram_id
 
-        # В целях текущего MVP мы сразу выставляем фазу BOARD_VIEW
+        # Переводим фазу
         room.phase = Phase.BOARD_VIEW
         
         # Привязываем пакет и текущий раунд
