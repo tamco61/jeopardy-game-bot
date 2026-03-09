@@ -1,10 +1,3 @@
-"""
-Jeopardy Game Bot — MVP (Long Polling).
-Мультиплеерная игра на реакцию в Telegram-чате.
-
-Стек: Python 3.11+, aiohttp (HTTP-клиент), redis.
-"""
-
 import asyncio
 import os
 import sys
@@ -29,9 +22,13 @@ from src.application.special_events import (
 )
 from src.application.start_game import StartGameUseCase
 from src.application.submit_answer import SubmitAnswerUseCase
-from src.bot.handlers import TelegramRouter
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.bot.handler import TelegramRouter
+from src.bot.handlers.admin import AdminHandler
+from src.bot.handlers.game import GameHandler
+from src.bot.handlers.lobby import LobbyHandler
+from src.bot.ui import JeopardyUI
 from src.infrastructure.database.base import build_engine, build_session_factory
+from src.infrastructure.database.postgres_repo import PostgresGameRepository
 from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
@@ -129,24 +126,42 @@ async def main() -> None:
     start_final_stake_uc = StartFinalStakeUseCase(state_repo)
     close_final_stake_uc = CloseFinalStakeUseCase(state_repo)
 
-    router = TelegramRouter(
-        telegram_client=telegram_client,
-        game_repo=game_repo,
-        start_game_uc=start_game_uc,
-        press_button_uc=press_uc,
-        submit_answer_uc=submit_answer_uc,
+    # Handlers & UI
+    ui = JeopardyUI(telegram_client)
+    
+    lobby_handler = LobbyHandler(
+        tg_client=telegram_client,
         create_lobby_uc=create_lobby_uc,
         join_lobby_uc=join_lobby_uc,
         ready_uc=ready_uc,
         leave_lobby_uc=leave_lobby_uc,
-        pause_game_uc=pause_uc,
-        unpause_game_uc=unpause_uc,
-        select_question_uc=select_question_uc,
-        place_stake_uc=place_stake_uc,
-        start_final_stake_uc=start_final_stake_uc,
-        close_final_stake_uc=close_final_stake_uc,
+    )
+
+    game_handler = GameHandler(
+        ui=ui,
+        game_repo=game_repo,
         state_repo=state_repo,
+        start_game_uc=start_game_uc,
+        press_button_uc=press_uc,
+        submit_answer_uc=submit_answer_uc,
+        select_question_uc=select_question_uc,
+        start_final_stake_uc=start_final_stake_uc,
+        place_stake_uc=place_stake_uc,
+        close_final_stake_uc=close_final_stake_uc,
+    )
+
+    admin_handler = AdminHandler(
+        tg_client=telegram_client,
+        pause_uc=pause_uc,
+        unpause_uc=unpause_uc,
         rabbit_publisher=rabbitmq,
+    )
+
+    router = TelegramRouter(
+        state_repo=state_repo,
+        lobby_handler=lobby_handler,
+        game_handler=game_handler,
+        admin_handler=admin_handler,
     )
 
     await telegram_client.start()
