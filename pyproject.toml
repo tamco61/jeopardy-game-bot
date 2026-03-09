@@ -110,6 +110,7 @@ extend-select = [
 # Правила, которые следует добавить к указанным в "ignore=[]" конфига или "--ignore" команды
 extend-ignore = [
     # Могут быть излишними в нашей ситуации
+    "G004",
     "E501",     # https://docs.astral.sh/ruff/rules/line-too-long
     "D1",       # https://docs.astral.sh/ruff/rules/#pydocstyle-d
     "D205",     # https://docs.astral.sh/ruff/rules/blank-line-after-summary

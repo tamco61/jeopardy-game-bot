@@ -4,15 +4,17 @@ import asyncio
 import os
 import sys
 
+from sqlalchemy.exc import SQLAlchemyError
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.infrastructure.database.base import build_engine, build_session_factory
 from src.infrastructure.database.postgres_repo import PostgresGameRepository
 from src.infrastructure.telegram import TelegramHttpClient
 from src.shared.config import AppSettings
+from src.shared.logger import get_logger
 from src.workers.siq_parser_worker import SiqParserWorker
 from src.workers.telegram_sender_worker import TelegramSenderWorker
-from src.shared.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -28,7 +30,7 @@ async def main() -> None:
         session_factory = build_session_factory(engine)
         game_repo = PostgresGameRepository(session_factory)
         logger.info("✅ Подключено к PostgreSQL (для парсера)")
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.error(f"❌ Критическая ошибка БД: {e}")
         return
 

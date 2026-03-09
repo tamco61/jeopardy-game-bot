@@ -2,7 +2,10 @@ import asyncio
 import os
 import sys
 
+import aio_pika
+import aiohttp
 import redis.asyncio as aioredis
+from sqlalchemy.exc import SQLAlchemyError
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -50,59 +53,28 @@ async def main() -> None:
         session_factory = build_session_factory(engine)
         game_repo = PostgresGameRepository(session_factory)
         logger.info("✅ Подключено к PostgreSQL")
-    except Exception as e:
-        logger.warning(f"⚠️ Ошибка подключения к PostgreSQL (используем заглушку): {e}")
-        game_repo = None
+    except SQLAlchemyError:
+        logger.error("❌ Критическая ошибка подключения к PostgreSQL")
+        raise
 
+    # Инициализация Redis
     try:
         redis_client = aioredis.from_url(settings.redis_url)
-        # Проверка соединения с redis
         await redis_client.ping()
         state_repo = RedisStateRepository(redis_client)
         logger.info("✅ Подключено к Redis")
-    except Exception as e:
-        logger.warning(f"⚠️ Ошибка подключения к Redis: {e}")
+    except aioredis.RedisError:
+        logger.error("❌ Критическая ошибка подключения к Redis")
+        raise
 
-        # Создадим dummy repo если нет редиса, чтобы код хоть как-то не падал сразу при сборке DI
-        class DummyRedisRepo(RedisStateRepository):
-            def __init__(self):
-                pass
-
-            async def get_room(self, *args, **kwargs):
-                return None
-
-            async def save_room(self, *args, **kwargs):
-                pass
-
-            async def delete_room(self, *args, **kwargs):
-                pass
-
-            async def try_capture_button(self, *args, **kwargs):
-                return False
-
-            async def release_button(self, *args, **kwargs):
-                pass
-
-        state_repo = DummyRedisRepo()
-
+    # Инициализация RabbitMQ
     try:
         rabbitmq = RabbitMQPublisher(settings.rabbitmq_url)
         await rabbitmq.connect()
         logger.info("✅ Подключено к RabbitMQ")
-    except Exception as e:
-        logger.warning(f"⚠️ Ошибка подключения к RabbitMQ: {e}")
-
-        class DummyRabbit:
-            async def publish(self, *args, **kwargs):
-                pass
-
-            async def connect(self):
-                pass
-
-            async def disconnect(self):
-                pass
-
-        rabbitmq = DummyRabbit()
+    except aio_pika.AMQPException:
+        logger.error("❌ Критическая ошибка подключения к RabbitMQ")
+        raise
 
     telegram_client = TelegramHttpClient(settings.telegram_bot_token)
 
@@ -187,10 +159,15 @@ async def main() -> None:
                     offset = update["update_id"] + 1
                     await router.handle_update(update)
 
+            except aiohttp.ClientError as e:
+                logger.error(f"❌ Сетевая ошибка при получении обновлений: {e}")
+                await asyncio.sleep(5)
+                continue
+
             except asyncio.CancelledError:
                 logger.info("🛑 Остановка...")
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.exception(f"❌ Критическая Ошибка: {e}")
                 await asyncio.sleep(5)
     finally:

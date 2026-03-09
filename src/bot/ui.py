@@ -1,3 +1,5 @@
+import aiohttp
+
 from src.domain.room import Room
 from src.infrastructure.telegram import TelegramHttpClient
 from src.shared.logger import get_logger
@@ -39,7 +41,7 @@ class JeopardyUI:
                     text=text,
                     reply_markup={"inline_keyboard": keyboard},
                 )
-            except Exception as e:
+            except aiohttp.ClientError as e:
                 logger.debug(f"Could not edit board message: {e}")
 
         sent_msg = await self._tg.send_message(

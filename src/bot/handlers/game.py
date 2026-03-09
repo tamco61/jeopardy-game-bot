@@ -1,6 +1,9 @@
 import asyncio
 import random
 
+import redis.asyncio as aioredis
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.application.press_button import PressButtonUseCase
 from src.application.select_question import (
     SelectQuestionDTO,
@@ -65,7 +68,8 @@ class GameHandler:
             if room and room.phase == Phase.BOARD_VIEW:
                 await self.render_board(chat_id, room)
 
-        except Exception as e:
+        except (SQLAlchemyError, aioredis.RedisError) as e:
+            logger.error(f"Ошибка старта игры: {e}")
             await self._ui._tg.send_message(chat_id, f"Ошибка старта игры: {e}")
 
     async def handle_select_question(self, chat_id: int, player_id: str, q_id: int, room: Room) -> None:
@@ -108,7 +112,7 @@ class GameHandler:
                     reply_markup=kb,
                 )
 
-        except Exception as e:
+        except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error(f"Ошибка при выборе вопроса: {e}")
 
     async def handle_press_button(self, chat_id: int, player_id: str, username: str, message_id: int, callback_query_id: str) -> None:
@@ -173,7 +177,7 @@ class GameHandler:
             elif room.phase == Phase.FINAL_ANSWER:
                 await self._ui._tg.send_message(room.chat_id, f"Финальный ответ от @{username} принят.")
 
-        except Exception as e:
+        except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error(f"Ошибка при сохранении ответа: {e}")
 
     async def handle_verdict(self, chat_id: int, message_id: int, data: str, room: Room) -> None:
@@ -205,8 +209,8 @@ class GameHandler:
                 elif room.phase == Phase.WAITING_FOR_PUSH:
                     await self._ui._tg.send_message(room.chat_id, "❌ Неверно! Кто ещё?")
 
-            except Exception as e:
-                print(f"Ошибка при вынесении вердикта: {e}")
+            except (SQLAlchemyError, aioredis.RedisError) as e:
+                logger.error(f"Ошибка при вынесении вердикта: {e}")
 
     async def render_board(self, chat_id: int, room: Room) -> None:
         if not room.current_round_id: return
@@ -233,7 +237,7 @@ class GameHandler:
             )
         except ValueError:
             await self._ui._tg.send_message(chat_id, "Использование: /stack <сумма>")
-        except Exception as e:
+        except (SQLAlchemyError, aioredis.RedisError) as e:
             await self._ui._tg.send_message(chat_id, f"Ошибка: {e}")
 
     async def handle_final_start_stakes(self, chat_id: int, room: Room) -> None:
@@ -251,7 +255,7 @@ class GameHandler:
                     "Ведущий: закройте прием, когда все ответят.",
                     reply_markup=kb,
                 )
-            except Exception as e:
+            except (SQLAlchemyError, aioredis.RedisError) as e:
                 logger.error(f"Ошибка старта финальных ставок: {e}")
 
     async def handle_final_close_stakes(self, chat_id: int, room: Room) -> None:
@@ -262,7 +266,7 @@ class GameHandler:
                     chat_id,
                     "🔒 Ставки закрыты! Игроки: отправьте свой ответ в чат обычным сообщением.",
                 )
-            except Exception as e:
+            except (SQLAlchemyError, aioredis.RedisError) as e:
                 logger.error(f"Ошибка закрытия финальных ставок: {e}")
 
     async def _handle_round_transition(self, room: Room) -> None:
