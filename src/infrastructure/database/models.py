@@ -1,9 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy.orm import relationship, mapped_column, Mapped
-from sqlalchemy import Integer, String, DateTime, Boolean, ForeignKey, Text
-from sqlalchemy import func, select
-
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+    select,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.infrastructure.database.base import Base
 

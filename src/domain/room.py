@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
 from enum import Enum
+
+from pydantic import BaseModel, Field
 
 from src.domain.errors import (
     InvalidTransitionError,
