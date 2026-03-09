@@ -17,7 +17,9 @@ from src.bot.ui import JeopardyUI
 from src.domain.room import Phase, Room
 from src.infrastructure.database.postgres_repo import PostgresGameRepository
 from src.infrastructure.redis_repo import RedisStateRepository
+from src.shared.logger import get_logger
 
+logger = get_logger(__name__)
 
 class GameHandler:
     """Обработчик игрового процесса (старт, выбор вопроса, ответы, вердикты)."""
@@ -47,7 +49,7 @@ class GameHandler:
         self._close_final_stake = close_final_stake_uc
 
     async def handle_start_game(self, chat_id: int, player_id: str, user_telegram_id: int) -> None:
-        # Временно хардкодим pack_id=1
+        # todo: Временно хардкодим pack_id=1
         start_dto = StartGameDTO(
             lobby_id="room_1",
             chat_id=chat_id,
@@ -107,7 +109,7 @@ class GameHandler:
                 )
 
         except Exception as e:
-            print(f"Ошибка при выборе вопроса: {e}")
+            logger.error(f"Ошибка при выборе вопроса: {e}")
 
     async def handle_press_button(self, chat_id: int, player_id: str, username: str, message_id: int, callback_query_id: str) -> None:
         result = await self._press_button.execute("room_1", player_id)
@@ -172,7 +174,7 @@ class GameHandler:
                 await self._ui._tg.send_message(room.chat_id, f"Финальный ответ от @{username} принят.")
 
         except Exception as e:
-            print(f"Ошибка при сохранении ответа: {e}")
+            logger.error(f"Ошибка при сохранении ответа: {e}")
 
     async def handle_verdict(self, chat_id: int, message_id: int, data: str, room: Room) -> None:
         parts = data.split(":")
@@ -250,7 +252,7 @@ class GameHandler:
                     reply_markup=kb,
                 )
             except Exception as e:
-                print(f"Ошибка старта финальных ставок: {e}")
+                logger.error(f"Ошибка старта финальных ставок: {e}")
 
     async def handle_final_close_stakes(self, chat_id: int, room: Room) -> None:
         if room.phase == Phase.FINAL_STAKE:
@@ -261,7 +263,7 @@ class GameHandler:
                     "🔒 Ставки закрыты! Игроки: отправьте свой ответ в чат обычным сообщением.",
                 )
             except Exception as e:
-                print(f"Ошибка закрытия финальных ставок: {e}")
+                logger.error(f"Ошибка закрытия финальных ставок: {e}")
 
     async def _handle_round_transition(self, room: Room) -> None:
         if not room.package_id: return

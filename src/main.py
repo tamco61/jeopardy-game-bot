@@ -33,11 +33,14 @@ from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
 from src.shared.config import AppSettings
+from src.shared.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # ──────────────────── Main polling loop ───────────────────────────────
 async def main() -> None:
-    print("🚀 Запуск бота (long polling)...")
+    logger.info("🚀 Запуск бота (long polling)...")
 
     settings = AppSettings()
 
@@ -46,9 +49,9 @@ async def main() -> None:
         engine = build_engine(settings.database_url)
         session_factory = build_session_factory(engine)
         game_repo = PostgresGameRepository(session_factory)
-        print("✅ Подключено к PostgreSQL")
+        logger.info("✅ Подключено к PostgreSQL")
     except Exception as e:
-        print(f"⚠️ Ошибка подключения к PostgreSQL (используем заглушку): {e}")
+        logger.warning(f"⚠️ Ошибка подключения к PostgreSQL (используем заглушку): {e}")
         game_repo = None
 
     try:
@@ -56,9 +59,9 @@ async def main() -> None:
         # Проверка соединения с redis
         await redis_client.ping()
         state_repo = RedisStateRepository(redis_client)
-        print("✅ Подключено к Redis")
+        logger.info("✅ Подключено к Redis")
     except Exception as e:
-        print(f"⚠️ Ошибка подключения к Redis: {e}")
+        logger.warning(f"⚠️ Ошибка подключения к Redis: {e}")
 
         # Создадим dummy repo если нет редиса, чтобы код хоть как-то не падал сразу при сборке DI
         class DummyRedisRepo(RedisStateRepository):
@@ -85,9 +88,9 @@ async def main() -> None:
     try:
         rabbitmq = RabbitMQPublisher(settings.rabbitmq_url)
         await rabbitmq.connect()
-        print("✅ Подключено к RabbitMQ")
+        logger.info("✅ Подключено к RabbitMQ")
     except Exception as e:
-        print(f"⚠️ Ошибка подключения к RabbitMQ: {e}")
+        logger.warning(f"⚠️ Ошибка подключения к RabbitMQ: {e}")
 
         class DummyRabbit:
             async def publish(self, *args, **kwargs):
@@ -169,14 +172,14 @@ async def main() -> None:
     try:
         await telegram_client.delete_webhook()
         offset: int | None = None
-        print("✅ Бот запущен. Ожидаю сообщения...\n")
+        logger.info("✅ Бот запущен. Ожидаю сообщения...")
 
         while True:
             try:
                 data = await telegram_client.get_updates(offset=offset)
 
                 if not data or not data.get("ok"):
-                    print(f"❌ Ошибка от Telegram: {data}")
+                    logger.error(f"❌ Ошибка от Telegram: {data}")
                     await asyncio.sleep(5)
                     continue
 
@@ -185,13 +188,10 @@ async def main() -> None:
                     await router.handle_update(update)
 
             except asyncio.CancelledError:
-                print("\n🛑 Остановка...")
+                logger.info("🛑 Остановка...")
                 break
             except Exception as e:
-                import traceback
-
-                traceback.print_exc()
-                print(f"❌ Критическая Ошибка: {e}")
+                logger.exception(f"❌ Критическая Ошибка: {e}")
                 await asyncio.sleep(5)
     finally:
         await telegram_client.close()
@@ -202,4 +202,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n👋 Бот остановлен.")
+        logger.info("👋 Бот остановлен.")

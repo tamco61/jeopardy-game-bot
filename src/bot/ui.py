@@ -1,5 +1,8 @@
 from src.domain.room import Room
 from src.infrastructure.telegram import TelegramHttpClient
+from src.shared.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class JeopardyUI:
@@ -37,7 +40,7 @@ class JeopardyUI:
                     reply_markup={"inline_keyboard": keyboard},
                 )
             except Exception as e:
-                print(f"DEBUG: Could not edit board message: {e}")
+                logger.debug(f"Could not edit board message: {e}")
 
         sent_msg = await self._tg.send_message(
             chat_id,

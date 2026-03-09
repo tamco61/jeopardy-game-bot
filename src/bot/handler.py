@@ -4,6 +4,9 @@ from src.bot.handlers.game import GameHandler
 from src.bot.handlers.lobby import LobbyHandler
 from src.domain.room import Phase
 from src.infrastructure.redis_repo import RedisStateRepository
+from src.shared.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class TelegramRouter:
@@ -27,7 +30,7 @@ class TelegramRouter:
 
     async def handle_update(self, update: dict) -> None:
         """Главный входной пункт для всех Telegram-обновлений."""
-        print(f"📩 Получен update: {update.get('update_id')}")
+        logger.info(f"📩 Получен update: {update.get('update_id')}")
 
         message: dict | None = update.get("message")
         if message:
