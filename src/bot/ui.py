@@ -26,7 +26,7 @@ class JeopardyUI:
                 if q["id"] in room.closed_questions:
                     row.append({"text": "❌", "callback_data": "ignore"})
                 else:
-                    row.append({"text": str(q["value"]), "callback_data": f"select_question:{q['id']}"})
+                    row.append({"text": str(q["value"]), "callback_data": f"select_question:{room.room_id}:{q['id']}"})
             keyboard.append(row)
 
         scoreboard = self.format_scoreboard(room)
@@ -83,5 +83,12 @@ class JeopardyUI:
 
     async def render_buzzer(self, chat_id: int, message_id: int, text: str = "Жмите кнопку!") -> None:
         """Восстановить кнопку ответа на сообщении."""
-        markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": "btn_room_1"}]]}
+        markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": f"btn_room_{chat_id}"}]]}
         await self._tg.edit_message_text(chat_id, message_id, text, reply_markup=markup)
+
+    async def render_results(self, chat_id: int, room: Room) -> str:
+        """Показать финальные результаты игры и вернуть текст для архива."""
+        scoreboard = self.format_scoreboard(room)
+        text = "🏆 **ИГРА ОКОНЧЕНА!** 🏆\n" + scoreboard
+        await self._tg.send_message(chat_id, text)
+        return text

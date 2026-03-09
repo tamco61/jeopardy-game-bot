@@ -20,16 +20,16 @@ class AdminHandler:
         self._unpause = unpause_uc
         self._rabbit = rabbit_publisher
 
-    async def handle_pause(self, chat_id: int, player_id: str) -> None:
+    async def handle_pause(self, chat_id: int, room_id: str, player_id: str) -> None:
         try:
-            await self._pause.execute("room_1", player_id)
+            await self._pause.execute(room_id, player_id)
             await self._tg.send_message(chat_id, "⏸ Игра поставлена на паузу.")
         except Exception as e:
             await self._tg.send_message(chat_id, f"Ошибка: {e}")
 
-    async def handle_unpause(self, chat_id: int, player_id: str) -> None:
+    async def handle_unpause(self, chat_id: int, room_id: str, player_id: str) -> None:
         try:
-            phase_name = await self._unpause.execute("room_1", player_id)
+            phase_name = await self._unpause.execute(room_id, player_id)
             await self._tg.send_message(chat_id, f"▶️ Снята с паузы. Возврат в: {phase_name}")
         except Exception as e:
             await self._tg.send_message(chat_id, f"Ошибка: {e}")

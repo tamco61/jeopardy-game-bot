@@ -54,11 +54,17 @@ class TelegramRouter:
         user_tg_id = int(user.get("id", 0))
         username = user.get("username") or user.get("first_name", "unknown")
 
+        room_id = f"room_{chat_id}"
+        if is_private:
+            active_room = await self._state_repo.get_active_room(user_tg_id)
+            if active_room:
+                room_id = active_room
+
         lobby_dto = BaseLobbyDTO(
-            room_id="room_1",
+            room_id=room_id,
             player_id=player_id,
             telegram_id=user_tg_id,
-            group_chat_id=chat_id,
+            group_chat_id=chat_id if not is_private else 0, # В ЛС chat_id это ID юзера
             username=username,
             first_name=user.get("first_name", ""),
         )
@@ -69,28 +75,30 @@ class TelegramRouter:
         elif text == "/join":
             await self._lobby.handle_join(chat_id, lobby_dto)
         elif text == "/ready":
-            await self._lobby.handle_ready(chat_id, player_id, username, True)
+            await self._lobby.handle_ready(chat_id, room_id, player_id, username, True)
         elif text == "/notready":
-            await self._lobby.handle_ready(chat_id, player_id, username, False)
+            await self._lobby.handle_ready(chat_id, room_id, player_id, username, False)
         elif text == "/leave":
-            await self._lobby.handle_leave(chat_id, player_id, username)
+            await self._lobby.handle_leave(chat_id, room_id, player_id, username)
         elif text == "/start_game":
-            await self._game.handle_start_game(chat_id, player_id, user_tg_id)
+            await self._game.handle_start_game(chat_id, room_id, player_id, user_tg_id)
         elif text == "/pause":
-            await self._admin.handle_pause(chat_id, player_id)
+            await self._admin.handle_pause(chat_id, room_id, player_id)
         elif text == "/unpause":
-            await self._admin.handle_unpause(chat_id, player_id)
+            await self._admin.handle_unpause(chat_id, room_id, player_id)
         elif text.startswith("/stack "):
-            await self._game.handle_place_stake(chat_id, player_id, username, text)
+            await self._game.handle_place_stake(chat_id, room_id, player_id, username, text)
+        elif text == "/results":
+            await self._lobby.handle_show_results(chat_id)
         elif text == "/upload_pack":
             await self._lobby._tg.send_message(
                 chat_id,
                 "📂 Чтобы загрузить свой пакет вопросов, отправьте файл `.siq` и в поле подписи (caption) напишите `/upload_pack`.",
             )
         elif text and not text.startswith("/"):
-            room = await self._state_repo.get_room("room_1")
+            room = await self._state_repo.get_room(room_id)
             if room and room.phase in (Phase.ANSWERING, Phase.FINAL_ANSWER):
-                await self._game.handle_submit_answer(chat_id, player_id, username, text, room, is_private)
+                await self._game.handle_submit_answer(chat_id, room_id, player_id, username, text, room, is_private)
 
     async def _handle_callback(self, callback_query: dict) -> None:
         user: dict = callback_query["from"]
@@ -102,21 +110,47 @@ class TelegramRouter:
         message_id: int = message["message_id"]
         cb_id = callback_query["id"]
 
-        room = await self._state_repo.get_room("room_1")
-        if not room: return
+        room_id = f"room_{chat_id}"
+        # Для команд, где ID комнаты зашит в callback_data, мы извлекаем его ниже.
+        # Для команд, привязанных к чату (например, buzzer), используем room_id.
 
         if data.startswith("verdict:"):
-            await self._game.handle_verdict(chat_id, message_id, data, room)
+            # verdict:{room_id}:{yes/no}:{player_id}
+            parts = data.split(":")
+            if len(parts) == 4:
+                r_id = parts[1]
+                v_room = await self._state_repo.get_room(r_id)
+                if v_room:
+                    await self._game.handle_verdict(chat_id, r_id, message_id, data, v_room)
             await self._lobby._tg.answer_callback_query(cb_id)
         elif data.startswith("select_question:"):
-            q_id = int(data.split(":")[1])
-            await self._game.handle_select_question(chat_id, player_id, q_id, room)
+            # select_question:{room_id}:{q_id}
+            parts = data.split(":")
+            if len(parts) == 3:
+                r_id = parts[1]
+                q_id = int(parts[2])
+                q_room = await self._state_repo.get_room(r_id)
+                if q_room:
+                    await self._game.handle_select_question(chat_id, r_id, player_id, q_id, q_room)
             await self._lobby._tg.answer_callback_query(cb_id)
-        elif data == "btn_room_1":
-            await self._game.handle_press_button(chat_id, player_id, username, message_id, cb_id)
-        elif data == "final_start_stakes":
-            await self._game.handle_final_start_stakes(chat_id, room)
+        elif data.startswith("btn_room_"):
+            # Нажатие на зуммер
+            await self._game.handle_press_button(chat_id, room_id, player_id, username, message_id, cb_id)
+        elif data.startswith("final_start_stakes:"):
+            r_id = data.split(":")[1]
+            f_room = await self._state_repo.get_room(r_id)
+            if f_room:
+                await self._game.handle_final_start_stakes(chat_id, r_id, f_room)
             await self._lobby._tg.answer_callback_query(cb_id)
-        elif data == "final_close_stakes":
-            await self._game.handle_final_close_stakes(chat_id, room)
+        elif data.startswith("final_close_stakes:"):
+            r_id = data.split(":")[1]
+            f_room = await self._state_repo.get_room(r_id)
+            if f_room:
+                await self._game.handle_final_close_stakes(chat_id, r_id, f_room)
+            await self._lobby._tg.answer_callback_query(cb_id)
+        elif data.startswith("final_reveal:"):
+            r_id = data.split(":")[1]
+            f_room = await self._state_repo.get_room(r_id)
+            if f_room:
+                await self._game.handle_final_reveal(chat_id, r_id, f_room)
             await self._lobby._tg.answer_callback_query(cb_id)

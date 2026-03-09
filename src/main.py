@@ -110,6 +110,7 @@ async def main() -> None:
         join_lobby_uc=join_lobby_uc,
         ready_uc=ready_uc,
         leave_lobby_uc=leave_lobby_uc,
+        state_repo=state_repo,
     )
 
     game_handler = GameHandler(
