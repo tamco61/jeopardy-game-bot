@@ -170,6 +170,8 @@ class TestFSMTransitions:
         assert result is True
         assert board_room.phase == Phase.BOARD_VIEW
         assert board_room.players["p1"].score == 200
+        # p1 ответил верно, теперь он выбирает
+        assert board_room.selecting_player_id == "p1"
 
     def test_wrong_answer_back_to_waiting(
         self,
@@ -220,6 +222,22 @@ class TestFSMTransitions:
         # p1 пытается снова
         with pytest.raises(PlayerBlockedError):
             board_room.press_button("p1")
+
+    def test_round_finished_detection(self, board_room: Room, sample_question: Question) -> None:
+        """Проверка детекции завершения раунда."""
+        q1_id = 1
+        q2_id = 2
+        
+        # Сначала вопросы не закрыты
+        assert board_room.is_round_finished([q1_id, q2_id]) is False
+        
+        # Закрываем один
+        board_room.closed_questions.append(q1_id)
+        assert board_room.is_round_finished([q1_id, q2_id]) is False
+        
+        # Закрываем второй
+        board_room.closed_questions.append(q2_id)
+        assert board_room.is_round_finished([q1_id, q2_id]) is True
 
     def test_wrong_phase_raises_error(self, lobby_room: Room) -> None:
         """Нельзя жать кнопку в LOBBY."""

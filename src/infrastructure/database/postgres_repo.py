@@ -11,7 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.application.parser.dto import PackageDTO
 from src.domain.question import Question, QuestionType
-from src.infrastructure.database.models import PackageModel, RoundModel, ThemeModel, QuestionModel
+from src.infrastructure.database.models import (
+    PackageModel,
+    QuestionModel,
+    RoundModel,
+    ThemeModel,
+)
 
 
 class PostgresGameRepository:

@@ -4,18 +4,23 @@ import asyncio
 import os
 import sys
 
+from sqlalchemy.exc import SQLAlchemyError
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
 from src.infrastructure.database.base import build_engine, build_session_factory
+from src.infrastructure.database.postgres_repo import PostgresGameRepository
 from src.infrastructure.telegram import TelegramHttpClient
 from src.shared.config import AppSettings
+from src.shared.logger import get_logger
 from src.workers.siq_parser_worker import SiqParserWorker
 from src.workers.telegram_sender_worker import TelegramSenderWorker
 
+logger = get_logger(__name__)
+
 
 async def main() -> None:
-    print("🚀 Запуск фоновых воркеров...")
+    logger.info("🚀 Запуск фоновых воркеров...")
 
     settings = AppSettings()
 
@@ -24,9 +29,9 @@ async def main() -> None:
         engine = build_engine(settings.database_url)
         session_factory = build_session_factory(engine)
         game_repo = PostgresGameRepository(session_factory)
-        print("✅ Подключено к PostgreSQL (для парсера)")
-    except Exception as e:
-        print(f"❌ Критическая ошибка БД: {e}")
+        logger.info("✅ Подключено к PostgreSQL (для парсера)")
+    except SQLAlchemyError as e:
+        logger.error(f"❌ Критическая ошибка БД: {e}")
         return
 
     # 2. Запуск Telegram клиента
@@ -44,7 +49,7 @@ async def main() -> None:
         telegram_client=telegram_client,
     )
 
-    print("⏳ Воркеры готовы. Ожидание задач из RabbitMQ...")
+    logger.info("⏳ Воркеры готовы. Ожидание задач из RabbitMQ...")
 
     # Запускаем все воркеры конкурентно
     try:
@@ -53,16 +58,16 @@ async def main() -> None:
             sender_worker.start(),
         )
     except asyncio.CancelledError:
-        print("\n🛑 Остановка воркеров (Отмена)...")
+        logger.info("🛑 Остановка воркеров (Отмена)...")
     finally:
         await parser_worker.stop()
         await sender_worker.stop()
         await telegram_client.close()
-        print("💤 Все ресурсы освобождены.")
+        logger.info("💤 Все ресурсы освобождены.")
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n👋 Воркеры остановлены (Ctrl+C).")
+        logger.info("👋 Воркеры остановлены (Ctrl+C).")

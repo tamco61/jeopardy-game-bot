@@ -54,6 +54,28 @@ class RedisStateRepository:
         """Удалить лок кнопки (для нового вопроса или отката)."""
         await self._redis.delete(f"{self._BUTTON_PREFIX}{room_id}")
 
+    async def set_active_room(self, user_telegram_id: int, room_id: str) -> None:
+        """Запомнить, в какой комнате сейчас 'активен' пользователь."""
+        key = f"active_room:{user_telegram_id}"
+        await self._redis.set(key, room_id, ex=3600)  # 1 час таймаут
+
+    async def get_active_room(self, user_telegram_id: int) -> str | None:
+        """Получить ID текущей комнаты пользователя."""
+        key = f"active_room:{user_telegram_id}"
+        val = await self._redis.get(key)
+        return val.decode() if val else None
+
+    async def save_last_results(self, chat_id: int, results_text: str) -> None:
+        """Сохранить финальный счет последней игры в чате."""
+        key = f"last_results:{chat_id}"
+        await self._redis.set(key, results_text, ex=604800)  # Храним неделю
+
+    async def get_last_results(self, chat_id: int) -> str | None:
+        """Получить результаты последней игры в чате."""
+        key = f"last_results:{chat_id}"
+        val = await self._redis.get(key)
+        return val.decode() if val else None
+
     # ── Ключ Redis ─────────────────────────────────
 
     def _key(self, room_id: str) -> str:

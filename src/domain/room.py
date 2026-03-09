@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
 from enum import Enum
+
+from pydantic import BaseModel, Field
 
 from src.domain.errors import (
     InvalidTransitionError,
@@ -67,6 +68,9 @@ class Room(BaseModel):
     package_id: int | None = None
     current_round_id: int | None = None
     closed_questions: list[int] = Field(default_factory=list)
+    selecting_player_id: str | None = None
+    last_board_message_id: int | None = None
+    last_buzzer_message_id: int | None = None
 
     # Текущий вопрос (заполняется при выборе с табло)
     current_question: Question | None = None
@@ -121,6 +125,11 @@ class Room(BaseModel):
             msg = "Не все игроки готовы"
             raise InvalidTransitionError(self.phase.value, msg)
         self.phase = Phase.BOARD_VIEW
+        # При старте игры первым выбирает HOST или первый игрок
+        if not self.selecting_player_id and self.host_id:
+            self.selecting_player_id = self.host_id
+        elif not self.selecting_player_id and self.players:
+            self.selecting_player_id = list(self.players.keys())[0]
 
     # ────────────────────────────────────────────────
     #  BOARD_VIEW -> READING / SPECIAL_EVENT
@@ -213,6 +222,7 @@ class Room(BaseModel):
 
         if is_correct:
             player.add_score(self.current_question.value)
+            self.selecting_player_id = player_id
             self._end_question()
         else:
             player.deduct_score(self.current_question.value)
@@ -246,6 +256,7 @@ class Room(BaseModel):
 
         if correct:
             player.add_score(self.current_question.value)
+            self.selecting_player_id = player_id
             self._end_question()
             return True
 
@@ -365,3 +376,9 @@ class Room(BaseModel):
         self.current_question = None
         self.answering_player_id = None
         self.phase = Phase.BOARD_VIEW
+
+    def is_round_finished(self, questions_in_round: list[int]) -> bool:
+        """Проверить, все ли вопросы раунда закрыты."""
+        if not questions_in_round:
+            return False
+        return all(q_id in self.closed_questions for q_id in questions_in_round)

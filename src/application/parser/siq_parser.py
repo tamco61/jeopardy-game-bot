@@ -5,10 +5,10 @@ import zipfile
 from io import BytesIO
 
 from src.application.parser.dto import (
-    QuestionDTO,
-    ThemeDTO,
     PackageDTO,
-    RoundDTO
+    QuestionDTO,
+    RoundDTO,
+    ThemeDTO,
 )
 
 
