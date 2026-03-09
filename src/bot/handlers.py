@@ -22,7 +22,7 @@ from src.application.special_events import (
 from src.application.start_game import StartGameDTO, StartGameUseCase
 from src.application.submit_answer import SubmitAnswerDTO, SubmitAnswerUseCase
 from src.domain.player import Player
-from src.domain.room import Phase
+from src.domain.room import Phase, Room
 from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient

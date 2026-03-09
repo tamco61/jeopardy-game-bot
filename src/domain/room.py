@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 from enum import Enum
 
 from src.domain.errors import (
@@ -34,8 +34,7 @@ class Phase(str, Enum):
     PAUSE = "pause"
 
 
-@dataclass
-class Room:
+class Room(BaseModel):
     """Игровая комната «Своей Игры».
 
     FSM-переходы::
@@ -58,12 +57,12 @@ class Room:
     room_id: str
     chat_id: int
     phase: Phase = Phase.LOBBY
-    players: dict[str, Player] = field(default_factory=dict)
+    players: dict[str, Player] = Field(default_factory=dict)
 
     # Привязка пакета и трекинг состояния по доске
     package_id: int | None = None
     current_round_id: int | None = None
-    closed_questions: list[int] = field(default_factory=list)
+    closed_questions: list[int] = Field(default_factory=list)
 
     # Текущий вопрос (заполняется при выборе с табло)
     current_question: Question | None = None
@@ -72,11 +71,11 @@ class Room:
 
     # Финальный раунд
     final_question: Question | None = None
-    final_stakes: dict[str, int] = field(default_factory=dict)
-    final_answers: dict[str, str] = field(default_factory=dict)
+    final_stakes: dict[str, int] = Field(default_factory=dict)
+    final_answers: dict[str, str] = Field(default_factory=dict)
 
     # Пауза — запоминаем, куда вернуться
-    paused_from: Phase | None = field(default=None, repr=False)
+    paused_from: Phase | None = Field(default=None, repr=False)
 
     # ────────────────────────────────────────────────
     #  Управление игроками

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pydantic import BaseModel
 from enum import Enum
 
 
@@ -14,15 +14,14 @@ class QuestionType(str, Enum):
     AUCTION = "auction"  # Аукцион
 
 
-@dataclass
-class Question:
+class Question(BaseModel):
     """Один вопрос из пакета «Своей Игры»."""
 
     question_id: int | None  # None для ещё не сохранённых
     theme_name: str
     text: str
     answer: str
-    value: int  # стоимость (100, 200, …)
+    value: int = 100 # стоимость (100, 200, …)
     question_type: QuestionType = QuestionType.NORMAL
 
     def check_answer(self, user_answer: str) -> bool:
