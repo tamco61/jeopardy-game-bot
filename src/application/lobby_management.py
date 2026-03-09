@@ -14,6 +14,7 @@ class BaseLobbyDTO(BaseModel):
     room_id: str
     player_id: str
     telegram_id: int
+    group_chat_id: int = 0
     username: str
     first_name: str = ""
 
@@ -33,8 +34,12 @@ class CreateLobbyUseCase:
 
         room = Room(
             room_id=dto.room_id,
-            chat_id=dto.telegram_id,  # временно: чат - это id инициатора или группы
+            # chat_id = групповой чат, где проходит игра
+            chat_id=dto.group_chat_id or dto.telegram_id,
             phase=Phase.LOBBY,
+            host_id=dto.player_id,
+            # host_telegram_id = личный ID ведущего для отправки ЛС
+            host_telegram_id=dto.telegram_id,
         )
 
         await self._state_repo.save_room(room)

@@ -1,30 +1,26 @@
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class QuestionDTO:
+class QuestionDTO(BaseModel):
     text: str
     answer: str
     value: int
     question_type: str = "normal"
 
 
-@dataclass
-class ThemeDTO:
+class ThemeDTO(BaseModel):
     name: str
-    questions: list[QuestionDTO] = field(default_factory=list)
+    questions: list[QuestionDTO] = Field(default_factory=list)
 
 
-@dataclass
-class RoundDTO:
+class RoundDTO(BaseModel):
     name: str
     is_final: bool = False
-    themes: list[ThemeDTO] = field(default_factory=list)
+    themes: list[ThemeDTO] = Field(default_factory=list)
 
 
-@dataclass
-class PackageDTO:
+class PackageDTO(BaseModel):
     title: str
     author: str = ""
-    rounds: list[RoundDTO] = field(default_factory=list)
+    rounds: list[RoundDTO] = Field(default_factory=list)
 

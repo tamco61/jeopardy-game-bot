@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pydantic import BaseModel
 
 
-@dataclass
-class Player:
+class Player(BaseModel):
     """Игрок, привязанный к Telegram-аккаунту."""
 
     player_id: str  # уникальный ID (str для совместимости с Redis key)

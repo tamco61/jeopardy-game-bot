@@ -11,6 +11,7 @@ class StartGameDTO(BaseModel):
     lobby_id: str
     chat_id: int
     host_player_id: str
+    host_telegram_id: int
     pack_id: int
 
 
@@ -43,24 +44,32 @@ class StartGameUseCase:
 
     async def execute(self, dto: StartGameDTO) -> StartGameResultDTO:
         """Инициализация комнаты на основе пакета вопросов."""
-        # 1. Загружаем пакет вопросов из Postgres (предполагаем наличие метода)
-        game_pack = await self._game_repo.get_game_pack(dto.pack_id)
+        # 1. Проверяем существование пакета в Postgres
+        pack_exists = await self._game_repo.get_package_by_id(dto.pack_id)
 
-        if not game_pack:
-            raise ValueError(f"Пакет вопросов с ID {dto.pack_id} не найден.")
+        if not pack_exists:
+            raise ValueError(f"Пакет вопросов с ID {dto.pack_id} не найден в БД.")
 
-        # 2. Инициализация сущности Room (начинаем с LOBBY, затем переходим в BOARD_VIEW)
-        room = Room(
-            room_id=dto.lobby_id, chat_id=dto.chat_id, phase=Phase.LOBBY
-        )
+        first_round_id = await self._game_repo.get_first_round_id(dto.pack_id)
+        if not first_round_id:
+            raise ValueError(f"В пакете {dto.pack_id} нет раундов.")
 
-        # В реальном приложении здесь происходило бы добавление игроков,
-        # и переход в BOARD_VIEW через room.start_game(). В целях текущего MVP
-        # мы можем сразу выставить фазу BOARD_VIEW (либо сымитировать готовность).
+        # 2. Инициализация сущности Room
+        room = await self._state_repo.get_room(dto.lobby_id)
+        if not room:
+            # Fallback room creation
+            room = Room(
+                room_id=dto.lobby_id, chat_id=dto.chat_id, phase=Phase.LOBBY
+            )
+            room.host_id = dto.host_player_id
+            room.host_telegram_id = dto.host_telegram_id
+
+        # Переводим фазу
         room.phase = Phase.BOARD_VIEW
-
-        # В будущем здесь можно сохранять game_pack внутрь комнаты,
-        # чтобы формировать табло. Для начала просто сохраняем стейт.
+        
+        # Привязываем пакет и текущий раунд
+        room.package_id = dto.pack_id
+        room.current_round_id = first_round_id
 
         # 3. Сохраняем состояние в Redis
         await self._state_repo.save_room(room)

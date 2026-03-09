@@ -22,10 +22,11 @@ from src.application.special_events import (
 from src.application.start_game import StartGameDTO, StartGameUseCase
 from src.application.submit_answer import SubmitAnswerDTO, SubmitAnswerUseCase
 from src.domain.player import Player
-from src.domain.room import Phase
+from src.domain.room import Phase, Room
 from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
+from src.infrastructure.database.postgres_repo import PostgresGameRepository
 
 
 class TelegramRouter:
@@ -34,6 +35,7 @@ class TelegramRouter:
     def __init__(
         self,
         telegram_client: TelegramHttpClient,
+        game_repo: PostgresGameRepository,
         start_game_uc: StartGameUseCase,
         press_button_uc: PressButtonUseCase,
         submit_answer_uc: SubmitAnswerUseCase,
@@ -51,6 +53,7 @@ class TelegramRouter:
         rabbit_publisher: RabbitMQPublisher,
     ) -> None:
         self._tg = telegram_client
+        self._game_repo = game_repo
         self._start_game = start_game_uc
         self._press_button = press_button_uc
         self._submit_answer = submit_answer_uc
@@ -78,16 +81,20 @@ class TelegramRouter:
 
             text: str = (message.get("text") or "").strip()
             chat_id: int = message["chat"]["id"]
+            is_private = message["chat"].get("type", "") == "private"
 
             user = message.get("from", {})
             player_id = str(user.get("id", ""))
+            # telegram_id — Ы пользователя (не chat!). По этому ID бот может слать ЛС.
+            user_telegram_id = int(user.get("id", 0))
             username = user.get("username") or user.get("first_name", "unknown")
 
             # Базовое DTO для команд лобби
             lobby_dto = BaseLobbyDTO(
                 room_id="room_1",
                 player_id=player_id,
-                telegram_id=chat_id,
+                telegram_id=user_telegram_id,   # ЛИЧНЫЙ ID для ЛС
+                group_chat_id=chat_id,           # ГРУППОВОЙ чат (где будет игра)
                 username=username,
                 first_name=user.get("first_name", ""),
             )
@@ -155,16 +162,33 @@ class TelegramRouter:
                 return
 
             if text == "/start_game":
-                # Временно хардкодим pack_id=1, потом это будет выбираться
+                # Проверяем что команду даёт ведущий
+                room_check = await self._state_repo.get_room("room_1")
+                if room_check and room_check.host_id and room_check.host_id != player_id:
+                    await self._tg.send_message(
+                        chat_id, "⛔ Только ведущий может начать игру."
+                    )
+                    return
+
+                # Временно хардкодим pack_id=1
                 start_dto = StartGameDTO(
                     lobby_id="room_1",
-                    chat_id=chat_id,
+                    chat_id=chat_id,  # Групповой чат сохраняется в этом месте
                     host_player_id=player_id,
+                    host_telegram_id=user_telegram_id, # ЛИЧНЫЙ ID ведущего
                     pack_id=1,
                 )
                 try:
                     result = await self._start_game.execute(start_dto)
+                    # Отвечаем в тот чат, откуда пришла команда
                     await self._tg.send_message(chat_id, result.message)
+
+                    # Табло рендерим в ГРУППУ (room.chat_id)
+                    room = await self._state_repo.get_room("room_1")
+                    if room and room.phase == Phase.BOARD_VIEW:
+                        print(f"DEBUG: Game started. Host ID: {room.host_id}, Host TG ID: {room.host_telegram_id}")
+                        await self._render_board(room.chat_id, room)
+
                 except Exception as e:
                     await self._tg.send_message(
                         chat_id, f"Ошибка старта игры: {e}"
@@ -215,10 +239,14 @@ class TelegramRouter:
             if text and not text.startswith("/"):
                 room = await self._state_repo.get_room("room_1")
                 if room and room.phase in (Phase.ANSWERING, Phase.FINAL_ANSWER):
+                    # Проверяем: если ANSWERING — только отвечающий игрок может ответить
                     if (
                         room.phase == Phase.ANSWERING
                         and room.answering_player_id != player_id
                     ):
+                        if is_private:
+                            # Игрок пишет в ЛС, но не его очередь
+                            await self._tg.send_message(chat_id, "Сейчас отвечает другой игрок.")
                         return
 
                     dto = SubmitAnswerDTO(
@@ -229,7 +257,21 @@ class TelegramRouter:
                     try:
                         await self._submit_answer.execute(dto)
 
+                        # Перезагружаем комнату, чтобы быть уверенными в host_telegram_id
+                        room = await self._state_repo.get_room("room_1")
+                        if not room:
+                            return
+
                         if room.phase == Phase.ANSWERING:
+                            print(f"DEBUG: Player {username} answered. Host TG ID: {room.host_telegram_id}")
+                            if not room.host_telegram_id:
+                                await self._tg.send_message(
+                                    chat_id=room.chat_id,
+                                    text="⚠️ Ошибка: ID ведущего не найден. Ведущий, напишите /create_lobby ещё раз."
+                                )
+                                return
+
+                            # Отправляем ведущему в ЛС кнопки вердикта
                             keyboard = {
                                 "inline_keyboard": [
                                     [
@@ -244,14 +286,32 @@ class TelegramRouter:
                                     ]
                                 ]
                             }
+                            # Сообщаем ведущему в ЛС
+                            try:
+                                await self._tg.send_message(
+                                    chat_id=room.host_telegram_id,
+                                    text=f"Игрок @{username} ответил: *{text}*\nВаш вердикт:",
+                                    reply_markup=keyboard,
+                                )
+                            except Exception as e:
+                                print(f"ERROR: Could not send DM to host: {e}")
+                                await self._tg.send_message(
+                                    chat_id=room.chat_id,
+                                    text=f"⚠️ Не удалось отправить вердикт ведущему в ЛС. Ведущий, вы начали диалог с ботом? Ошибка: {e}"
+                                )
+
+                            # Также сообщаем в группу, что игрок ответил
                             await self._tg.send_message(
-                                chat_id=chat_id,
-                                text=f"Игрок @{username} ответил: {text}\nВердикт ведущего?",
-                                reply_markup=keyboard,
+                                chat_id=room.chat_id,
+                                text=f"Игрок @{username} дал ответ. Ждём вердикт ведущего...",
                             )
+                            # Подтверждаем игроку что ответ принят
+                            if is_private:
+                                await self._tg.send_message(chat_id, "✅ Твой ответ передан ведущему!")
+
                         elif room.phase == Phase.FINAL_ANSWER:
                             await self._tg.send_message(
-                                chat_id=chat_id,
+                                chat_id=room.chat_id,
                                 text=f"Финальный ответ от @{username} принят.",
                             )
                     except Exception as e:
@@ -282,11 +342,34 @@ class TelegramRouter:
                     try:
                         room.resolve_answer(target_player_id, is_correct)
                         await self._state_repo.save_room(room)
+
+                        # ФИКС: всегда освобождаем кнопку после вердикта
+                        await self._state_repo.release_button("room_1")
+
+                        verdict_text = "✅ Верно" if is_correct else "❌ Неверно"
+                        # Редактируем сообщение в ЛС ведущего
                         await self._tg.edit_message_text(
                             chat_id=chat_id,
                             message_id=message_id,
-                            text=f"Ведущий вынес вердикт: {'✅ Верно' if is_correct else '❌ Неверно'}",
+                            text=f"Ведущий вынес вердикт: {verdict_text}",
                         )
+
+                        # Объявляем результат в ГРУППУ
+                        await self._tg.send_message(
+                            chat_id=room.chat_id,
+                            text=f"Ведущий вынес вердикт: {verdict_text}",
+                        )
+
+                        # Если вернулись на табло — отправляем табло в ГРУППУ
+                        if room.phase == Phase.BOARD_VIEW:
+                            await self._render_board(room.chat_id, room)
+                        # Если неверно — ещё кто-то может ответить
+                        elif room.phase == Phase.WAITING_FOR_PUSH:
+                            await self._tg.send_message(
+                                room.chat_id,
+                                "❌ Неверно! Кто ещё хочет ответить?",
+                            )
+
                     except Exception as e:
                         print(f"Ошибка при вынесении вердикта: {e}")
 
@@ -305,8 +388,9 @@ class TelegramRouter:
                         )
                         res = await self._select_question.execute(dto)
 
+                        # Вопрос объявляем в группе
                         await self._tg.send_message(
-                            chat_id,
+                            room.chat_id,
                             f"Выбран вопрос за {res.question_value}\n\n{res.question_text}",
                         )
 
@@ -321,8 +405,9 @@ class TelegramRouter:
                                     ]
                                 ]
                             }
+                            # Кнопку отправляем в ГРУППУ, а не в чат откуда пришел каллбэк
                             sent_msg = await self._tg.send_message(
-                                chat_id,
+                                room.chat_id,
                                 "Ожидайте активации кнопки...",
                                 reply_markup=kb,
                             )
@@ -332,7 +417,7 @@ class TelegramRouter:
 
                                 asyncio.create_task(
                                     self._activate_button(
-                                        chat_id,
+                                        room.chat_id,
                                         msg_id,
                                         random.uniform(2.0, 5.0),
                                     )
@@ -416,18 +501,34 @@ class TelegramRouter:
 
             if result.captured:
                 print(f"🏆 ПЕРВЫЙ нажал: @{username}")
-                # Fetch room again to get current_question text safely
                 room_now = await self._state_repo.get_room("room_1")
-                q_text = (
-                    room_now.current_question.text
-                    if room_now and room_now.current_question
-                    else "Вопрос"
-                )
-                await self._tg.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text=f"Вопрос: {q_text}\n\n🛑 Отвечает @{username}! Ждем ответ в чат.",
-                )
+                if room_now:
+                    # Сохраняем telegram_id отвечающего для последующей отправки ЛС
+                    room_now.answering_player_telegram_id = user["id"]
+                    await self._state_repo.save_room(room_now)
+
+                    q_text = (
+                        room_now.current_question.text
+                        if room_now.current_question
+                        else "Вопрос"
+                    )
+
+                    # Обновляем кнопку в ГРУППЕ — сообщаем кто отвечает
+                    await self._tg.edit_message_text(
+                        chat_id=room_now.chat_id,
+                        message_id=message_id,
+                        text=f"🛑 Отвечает @{username}! Ждём ответа в личку...",
+                    )
+
+                    # Отправляем игроку ЛС с вопросом и просьбой ответить
+                    await self._tg.send_message(
+                        chat_id=user["id"],
+                        text=(
+                            f"❓ Ты первый! Вопрос:\n\n*{q_text}*\n\n"
+                            f"Напиши ответ прямо в это личное сообщение."
+                        ),
+                    )
+
                 await self._tg.answer_callback_query(
                     callback_query["id"], text="Твой ответ!"
                 )
@@ -437,6 +538,7 @@ class TelegramRouter:
                     callback_query_id=callback_query["id"],
                     text=result.error or "Кто-то успел раньше!",
                 )
+
 
     async def _activate_button(
         self, chat_id: int, message_id: int, delay: float
@@ -517,6 +619,44 @@ class TelegramRouter:
                 chat_id, f"Ошибка при скачивании/обработке пакета: {e}"
             )
             print(f"Ошибка загрузки SIQ: {e}")
+
+
+    async def _render_board(self, chat_id: int, room: Room) -> None:
+        """Отрисовывает актуальное табло команде через Inline Keyboard.
+        
+        Каждая строка — это тема, первая кнопка — название темы (не кликабельна),
+        остальные кнопки — доступные стоимости вопросов. Сыгранные заменяются на ❌.
+        """
+        if not room.current_round_id:
+            await self._tg.send_message(chat_id, "❌ Раунд не назначен. Свяжитесь с ведущим.")
+            return
+
+        board_data = await self._game_repo.get_board_for_round(room.current_round_id)
+
+        if not board_data:
+            await self._tg.send_message(chat_id, "⚠️ Табло пустое. Возможно, пакет не содержит вопросов.")
+            return
+
+        keyboard = []
+        for theme in board_data:
+            row = []
+            # Укорачиваем название темы если оно слишком длинное
+            name = theme["theme"]
+            theme_name = (name[:15] + "..") if len(name) > 17 else name
+            row.append({"text": theme_name, "callback_data": "ignore"})
+
+            for q in theme["questions"]:
+                if q["id"] in room.closed_questions:
+                    row.append({"text": "❌", "callback_data": "ignore"})
+                else:
+                    row.append({"text": str(q["value"]), "callback_data": f"select_question:{q['id']}"})
+            keyboard.append(row)
+
+        await self._tg.send_message(
+            chat_id,
+            "🎮 **Выберите вопрос:**",
+            reply_markup={"inline_keyboard": keyboard},
+        )
 
 
 class WebSocketRouter:
