@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from src.domain.room import Phase, Room
+from src.domain.errors import DomainError
 from src.infrastructure.database.repositories.package import PackageRepository
 from src.infrastructure.database.repositories.round import RoundRepository
 from src.infrastructure.redis_repo import RedisStateRepository
@@ -64,15 +64,10 @@ class StartGameUseCase:
         # 2. Инициализация сущности Room
         room = await self._state_repo.get_room(dto.lobby_id)
         if not room:
-            # Fallback room creation
-            room = Room(
-                room_id=dto.lobby_id, chat_id=dto.chat_id, phase=Phase.LOBBY
-            )
-            room.host_id = dto.host_player_id
-            room.host_telegram_id = dto.host_telegram_id
+            raise DomainError(f"Лобби {dto.lobby_id} не найдено.")
 
-        # Переводим фазу
-        room.phase = Phase.BOARD_VIEW
+        # Переводим фазу через FSM
+        room.start_game()
         
         # Привязываем пакет и текущий раунд
         room.package_id = dto.pack_id
