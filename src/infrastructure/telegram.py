@@ -120,4 +120,5 @@ class TelegramHttpClient:
             f"{self._base_url}/{method}",
             data=payload,
         ) as resp:
+            resp.raise_for_status()
             return await resp.json()
