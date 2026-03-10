@@ -132,6 +132,7 @@ class Room(BaseModel):
         if not self.selecting_player_id and self.host_id:
             self.selecting_player_id = self.host_id
         elif not self.selecting_player_id and self.players:
+            # todo: неявная зависимость от порядка вставки dict
             self.selecting_player_id = list(self.players.keys())[0]
 
     # ────────────────────────────────────────────────
@@ -238,44 +239,6 @@ class Room(BaseModel):
             else:
                 self._end_question()
 
-    def submit_answer(self, player_id: str, answer: str) -> bool:
-        """Игрок даёт ответ.
-
-        Returns:
-            True — правильный, False — неправильный.
-        """
-        self._assert_phase(Phase.ANSWERING, "submit_answer")
-
-        if self.answering_player_id != player_id:
-            msg = "Отвечать может только тот, кто нажал кнопку"
-            raise InvalidTransitionError(self.phase.value, msg)
-
-        if self.current_question is None:
-            msg = "Нет текущего вопроса"
-            raise InvalidTransitionError(self.phase.value, msg)
-
-        player = self.get_player(player_id)
-        correct = self.current_question.check_answer(answer)
-
-        if correct:
-            player.add_score(self.current_question.value)
-            self.selecting_player_id = player_id
-            self._end_question()
-            return True
-
-        # Неверный ответ
-        player.deduct_score(self.current_question.value)
-        player.block_for_question()
-        self.answering_player_id = None
-
-        # Есть ли кто-то, кто ещё может ответить?
-        if self._has_eligible_players():
-            self.phase = Phase.WAITING_FOR_PUSH
-        else:
-            self._end_question()
-
-        return False
-
     # ────────────────────────────────────────────────
     #  BOARD_VIEW -> FINAL_ROUND -> ... -> RESULTS
     # ────────────────────────────────────────────────
@@ -375,9 +338,10 @@ class Room(BaseModel):
         """Завершить текущий вопрос, закрыть его на табло и вернуться."""
         if self.current_question and self.current_question.question_id:
             self.closed_questions.append(self.current_question.question_id)
-            
+
         self.current_question = None
         self.answering_player_id = None
+        self.player_answer = None
         self.phase = Phase.BOARD_VIEW
 
     def is_round_finished(self, questions_in_round: list[int]) -> bool:
