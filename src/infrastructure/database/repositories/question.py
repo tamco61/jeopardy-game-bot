@@ -42,14 +42,12 @@ class QuestionRepository:
             self, theme_id: int | None = None
     ) -> Question | None:
         async with self._session_factory() as session:
-            stmt = (
-                select(QuestionModel, ThemeModel.name)
-                .join(ThemeModel, QuestionModel.theme_id == ThemeModel.id)
-                .order_by(func.random())
-                .limit(1)
+            stmt = select(QuestionModel, ThemeModel.name).join(
+                ThemeModel, QuestionModel.theme_id == ThemeModel.id
             )
             if theme_id is not None:
                 stmt = stmt.where(QuestionModel.theme_id == theme_id)
+            stmt = stmt.order_by(func.random()).limit(1)
 
             result = await session.execute(stmt)
             row = result.one_or_none()
