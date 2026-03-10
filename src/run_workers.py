@@ -1,12 +1,8 @@
 """Точка входа для запуска фоновых воркеров."""
 
 import asyncio
-import os
-import sys
 
-from sqlalchemy.exc import SQLAlchemyError
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.infrastructure.database.base import build_engine, build_session_factory
 from src.infrastructure.database.repositories.package import PackageRepository
@@ -20,19 +16,15 @@ logger = get_logger(__name__)
 
 
 async def main() -> None:
-    logger.info("🚀 Запуск фоновых воркеров...")
-
     settings = AppSettings()
 
+    logger.info("🚀 Запуск фоновых воркеров...")
+
     # 1. Запуск БД
-    try:
-        engine = build_engine(settings.database_url)
-        session_factory = build_session_factory(engine)
-        package_repo = PackageRepository(session_factory)
-        logger.info("✅ Подключено к PostgreSQL (для парсера)")
-    except SQLAlchemyError as e:
-        logger.error(f"❌ Критическая ошибка БД: {e}")
-        return
+    engine = build_engine(settings.database_url)
+    session_factory = build_session_factory(engine)
+    package_repo = PackageRepository(session_factory)
+    logger.info("✅ Подключено к PostgreSQL (для парсера)")
 
     # 2. Запуск Telegram клиента
     telegram_client = TelegramHttpClient(settings.telegram_bot_token)
