@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from anyio import Path
@@ -39,9 +40,9 @@ class SiqParserWorker(BaseWorker):
 
         try:
             # 1. Парсинг SIQ
-            package_dto = self._parser.parse(file_path)
+            package_dto = await asyncio.to_thread(self._parser.parse, file_path)
             self._log.info(
-                "Файл %s успешно распарсен. Название: '%s', Раундов: %d",
+                "Файл %s успешно распаршен. Название: '%s', Раундов: %d",
                 file_path,
                 package_dto.title,
                 len(package_dto.rounds),
