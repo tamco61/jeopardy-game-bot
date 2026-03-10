@@ -17,6 +17,7 @@ from src.application.special_events import (
 )
 from src.application.start_game import StartGameDTO, StartGameUseCase
 from src.application.submit_answer import SubmitAnswerDTO, SubmitAnswerUseCase
+from src.bot.router import command, callback, message
 from src.bot.ui import JeopardyUI
 from src.domain.room import Phase, Room
 from src.infrastructure.database.postgres_repo import PostgresGameRepository
@@ -58,7 +59,8 @@ class GameHandler:
         # Оставшееся время на раздумья: room_id -> float
         self._remaining_thinking_time: dict[str, float] = {}
 
-    async def handle_start_game(self, chat_id: int, room_id: str, player_id: str, user_telegram_id: int) -> None:
+    @command("/start_game")
+    async def handle_start_game(self, chat_id: int, room_id: str, player_id: str, user_tg_id: int) -> None:
         room = await self._state_repo.get_room(room_id)
         if room and room.host_id != player_id:
             await self._ui._tg.send_message(chat_id, "⚠️ Только ведущий (HOST) может запустить игру.")
@@ -75,17 +77,23 @@ class GameHandler:
             logger.error(f"Ошибка получения списка паков: {e}")
             await self._ui._tg.send_message(chat_id, "❌ Произошла ошибка при получении списка пакетов.")
 
-    async def handle_select_pack(self, chat_id: int, room_id: str, pack_id: int, player_id: str, user_telegram_id: int) -> None:
+    @callback("select_pack:")
+    async def handle_select_pack(self, chat_id: int, player_id: str, user_tg_id: int, data: str, cb_id: str) -> None:
+        parts = data.split(":")
+        if len(parts) != 3: return
+        room_id, pack_id = parts[1], int(parts[2])
+
         room = await self._state_repo.get_room(room_id)
         if room and room.host_id != player_id:
             await self._ui._tg.send_message(chat_id, "⚠️ Только ведущий (HOST) может выбрать пакет.")
+            await self._ui._tg.answer_callback_query(cb_id)
             return
 
         start_dto = StartGameDTO(
             lobby_id=room_id,
             chat_id=chat_id,
             host_player_id=player_id,
-            host_telegram_id=user_telegram_id,
+            host_telegram_id=user_tg_id,
             pack_id=pack_id,
         )
         try:
@@ -99,8 +107,16 @@ class GameHandler:
         except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error(f"Ошибка старта игры: {e}")
             await self._ui._tg.send_message(chat_id, f"Ошибка старта игры: {e}")
+        finally:
+            await self._ui._tg.answer_callback_query(cb_id)
 
-    async def handle_select_question(self, chat_id: int, room_id: str, player_id: str, q_id: int, room: Room) -> None:
+    @callback("select_question:")
+    async def handle_select_question(self, chat_id: int, player_id: str, data: str, cb_id: str) -> None:
+        parts = data.split(":")
+        if len(parts) != 3: return
+        room_id, q_id = parts[1], int(parts[2])
+        room = await self._state_repo.get_room(room_id)
+        if not room: return
         try:
             dto = SelectQuestionDTO(
                 room_id=room_id,
@@ -151,8 +167,11 @@ class GameHandler:
 
         except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error(f"Ошибка при выборе вопроса: {e}")
+        finally:
+            await self._ui._tg.answer_callback_query(cb_id)
 
-    async def handle_press_button(self, chat_id: int, room_id: str, player_id: str, username: str, message_id: int, callback_query_id: str) -> None:
+    @callback("btn_room_")
+    async def handle_press_button(self, chat_id: int, room_id: str, player_id: str, username: str, message_id: int, cb_id: str) -> None:
         result = await self._press_button.execute(room_id, player_id)
 
         if result.captured:
@@ -177,7 +196,7 @@ class GameHandler:
                     chat_id=int(player_id),
                     text=f"❓ Ты первый! Вопрос:\n\n*{q_text}*\n\nНапиши ответ прямо в это ЛС. У тебя 10 секунд!"
                 )
-                await self._ui._tg.answer_callback_query(callback_query_id, text="Твой ответ!")
+                await self._ui._tg.answer_callback_query(cb_id, text="Твой ответ!")
 
                 # Запуск таймера на ответ (10 сек)
                 tmr = asyncio.create_task(self._answer_timeout_task(room_id, player_id, username))
@@ -187,11 +206,15 @@ class GameHandler:
                 await self._state_repo.set_active_room(int(player_id), room_id)
         else:
             await self._ui._tg.answer_callback_query(
-                callback_query_id=callback_query_id,
+                callback_query_id=cb_id,
                 text=result.error or "Кто-то успел раньше!"
             )
 
+    @message()
     async def handle_submit_answer(self, chat_id: int, room_id: str, player_id: str, username: str, text: str, room: Room, is_private: bool) -> None:
+        if not text or text.startswith("/"): return
+        if not room or room.phase not in (Phase.ANSWERING, Phase.FINAL_ANSWER): return
+
         dto = SubmitAnswerDTO(room_id=room_id, player_id=player_id, answer=text)
         try:
             # Отменяем таймер на ответ, так как ответ пришел
@@ -233,10 +256,16 @@ class GameHandler:
         except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error(f"Ошибка при сохранении ответа: {e}")
 
-    async def handle_verdict(self, chat_id: int, room_id: str, message_id: int, data: str, room: Room) -> None:
+    @callback("verdict:")
+    async def handle_verdict(self, chat_id: int, message_id: int, data: str, cb_id: str) -> None:
         parts = data.split(":")
         # verdict:{room_id}:{yes/no}:{player_id}
-        if len(parts) == 4 and room and room.phase == Phase.ANSWERING:
+        if len(parts) != 4: return
+        room_id = parts[1]
+        room = await self._state_repo.get_room(room_id)
+        if not room: return
+
+        if room and room.phase == Phase.ANSWERING:
             verdict, target_player_id = parts[2], parts[3]
             is_correct = verdict == "yes"
             try:
@@ -340,13 +369,21 @@ class GameHandler:
             self._remaining_thinking_time[room_id] = max(0.0, timeout - elapsed)
             logger.debug(f"Таймер вопроса приостановлен. Осталось: {self._remaining_thinking_time[room_id]:.1f}с")
 
-    async def handle_skip_round(self, chat_id: int, room_id: str, player_id: str) -> None:
+    @command("/skip")
+    @callback("skip_round:")
+    async def handle_skip_round(self, chat_id: int, room_id: str, player_id: str, data: str = None, cb_id: str = None) -> None:
         """Принудительный пропуск текущего раунда (только для хоста)."""
+        if data:
+            room_id = data.split(":")[1]
+            
         room = await self._state_repo.get_room(room_id)
-        if not room: return
+        if not room: 
+            if cb_id: await self._ui._tg.answer_callback_query(cb_id)
+            return
         
         if room.host_id != player_id:
             await self._ui._tg.send_message(chat_id, "⚠️ Только ведущий (HOST) может пропустить раунд.")
+            if cb_id: await self._ui._tg.answer_callback_query(cb_id)
             return
 
         await self._ui._tg.send_message(room.chat_id, "⏩ Ведущий пропустил раунд!")
@@ -372,6 +409,10 @@ class GameHandler:
             
             await self._handle_round_transition(room)
 
+        if cb_id: 
+            await self._ui._tg.answer_callback_query(cb_id)
+
+    @command("/stack")
     async def handle_place_stake(self, chat_id: int, room_id: str, player_id: str, username: str, text: str) -> None:
         try:
             stake_val = int(text.split(" ")[1])
@@ -385,7 +426,11 @@ class GameHandler:
         except (SQLAlchemyError, aioredis.RedisError) as e:
             await self._ui._tg.send_message(chat_id, f"Ошибка: {e}")
 
-    async def handle_final_start_stakes(self, chat_id: int, room_id: str, room: Room) -> None:
+    @callback("final_start_stakes:")
+    async def handle_final_start_stakes(self, chat_id: int, data: str, cb_id: str) -> None:
+        room_id = data.split(":")[1]
+        room = await self._state_repo.get_room(room_id)
+        if not room: return
         if room.phase == Phase.FINAL_ROUND:
             try:
                 await self._start_final_stake.execute(room_id)
@@ -402,8 +447,13 @@ class GameHandler:
                 )
             except (SQLAlchemyError, aioredis.RedisError) as e:
                 logger.error(f"Ошибка старта финальных ставок: {e}")
+        await self._ui._tg.answer_callback_query(cb_id)
 
-    async def handle_final_close_stakes(self, chat_id: int, room_id: str, room: Room) -> None:
+    @callback("final_close_stakes:")
+    async def handle_final_close_stakes(self, chat_id: int, data: str, cb_id: str) -> None:
+        room_id = data.split(":")[1]
+        room = await self._state_repo.get_room(room_id)
+        if not room: return
         if room.phase == Phase.FINAL_STAKE:
             try:
                 await self._close_final_stake.execute(room_id)
@@ -429,6 +479,7 @@ class GameHandler:
                 await self._state_repo.save_room(room)
                 res_text = await self._ui.render_results(room.chat_id, room)
                 await self._state_repo.save_last_results(room.chat_id, res_text)
+        await self._ui._tg.answer_callback_query(cb_id)
 
     async def _handle_round_transition(self, room: Room) -> None:
         """Внутренняя логика закрытия вопроса и проверки перехода раунда."""
@@ -485,8 +536,12 @@ class GameHandler:
             res_text = await self._ui.render_results(room.chat_id, room)
             await self._state_repo.save_last_results(room.chat_id, res_text)
 
-    async def handle_final_reveal(self, chat_id: int, room_id: str, room: Room) -> None:
+    @callback("final_reveal:")
+    async def handle_final_reveal(self, chat_id: int, data: str, cb_id: str) -> None:
         """Хост оглашает результаты финала."""
+        room_id = data.split(":")[1]
+        room = await self._state_repo.get_room(room_id)
+        if not room: return
         if room.phase == Phase.FINAL_ANSWER:
             # Считаем итоги в домене
             results = room.resolve_final()
@@ -506,3 +561,5 @@ class GameHandler:
             await self._ui._tg.send_message(room.chat_id, text)
             res_text = await self._ui.render_results(room.chat_id, room)
             await self._state_repo.save_last_results(room.chat_id, res_text)
+        
+        await self._ui._tg.answer_callback_query(cb_id)

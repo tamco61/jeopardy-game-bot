@@ -1,6 +1,7 @@
 import os
 
 from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
+from src.bot.router import command, document
 from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.telegram import TelegramHttpClient
 
@@ -20,6 +21,7 @@ class AdminHandler:
         self._unpause = unpause_uc
         self._rabbit = rabbit_publisher
 
+    @command("/pause")
     async def handle_pause(self, chat_id: int, room_id: str, player_id: str) -> None:
         try:
             await self._pause.execute(room_id, player_id)
@@ -27,6 +29,7 @@ class AdminHandler:
         except Exception as e:
             await self._tg.send_message(chat_id, f"Ошибка: {e}")
 
+    @command("/unpause")
     async def handle_unpause(self, chat_id: int, room_id: str, player_id: str) -> None:
         try:
             phase_name = await self._unpause.execute(room_id, player_id)
@@ -34,8 +37,8 @@ class AdminHandler:
         except Exception as e:
             await self._tg.send_message(chat_id, f"Ошибка: {e}")
 
-    async def handle_document(self, message: dict) -> None:
-        chat_id = message["chat"]["id"]
+    @document()
+    async def handle_document(self, chat_id: int, message: dict) -> None:
         document = message["document"]
         caption = message.get("caption", "").strip()
 
