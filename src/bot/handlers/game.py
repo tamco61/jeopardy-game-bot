@@ -59,13 +59,34 @@ class GameHandler:
         self._remaining_thinking_time: dict[str, float] = {}
 
     async def handle_start_game(self, chat_id: int, room_id: str, player_id: str, user_telegram_id: int) -> None:
-        # todo: Временно хардкодим pack_id=1
+        room = await self._state_repo.get_room(room_id)
+        if room and room.host_id != player_id:
+            await self._ui._tg.send_message(chat_id, "⚠️ Только ведущий (HOST) может запустить игру.")
+            return
+
+        try:
+            packs = await self._game_repo.get_all_packages()
+            if not packs:
+                await self._ui._tg.send_message(chat_id, "⚠️ В базе данных нет доступных пакетов вопросов.")
+                return
+            
+            await self._ui.render_pack_selection(chat_id, packs, room_id)
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка получения списка паков: {e}")
+            await self._ui._tg.send_message(chat_id, "❌ Произошла ошибка при получении списка пакетов.")
+
+    async def handle_select_pack(self, chat_id: int, room_id: str, pack_id: int, player_id: str, user_telegram_id: int) -> None:
+        room = await self._state_repo.get_room(room_id)
+        if room and room.host_id != player_id:
+            await self._ui._tg.send_message(chat_id, "⚠️ Только ведущий (HOST) может выбрать пакет.")
+            return
+
         start_dto = StartGameDTO(
             lobby_id=room_id,
             chat_id=chat_id,
             host_player_id=player_id,
             host_telegram_id=user_telegram_id,
-            pack_id=1,
+            pack_id=pack_id,
         )
         try:
             result = await self._start_game.execute(start_dto)
@@ -319,6 +340,38 @@ class GameHandler:
             self._remaining_thinking_time[room_id] = max(0.0, timeout - elapsed)
             logger.debug(f"Таймер вопроса приостановлен. Осталось: {self._remaining_thinking_time[room_id]:.1f}с")
 
+    async def handle_skip_round(self, chat_id: int, room_id: str, player_id: str) -> None:
+        """Принудительный пропуск текущего раунда (только для хоста)."""
+        room = await self._state_repo.get_room(room_id)
+        if not room: return
+        
+        if room.host_id != player_id:
+            await self._ui._tg.send_message(chat_id, "⚠️ Только ведущий (HOST) может пропустить раунд.")
+            return
+
+        await self._ui._tg.send_message(room.chat_id, "⏩ Ведущий пропустил раунд!")
+        # Принудительно закрываем текущий вопрос если он есть
+        if room.current_question:
+            room.closed_questions.append(room.current_question.question_id)
+            room.current_question = None
+            
+        # Останавливаем таймеры
+        if room_id in self._question_timers:
+            self._question_timers[room_id].cancel()
+        if room_id in self._answer_timers:
+            self._answer_timers[room_id].cancel()
+
+        # Имитируем завершение раунда, чтобы сработал переход к следующему
+        # Для этого просто находим все ID вопросов текущего раунда и добавляем их в закрытые
+        if room.current_round_id:
+            board_data = await self._game_repo.get_board_for_round(room.current_round_id)
+            for theme in board_data:
+                for q in theme["questions"]:
+                    if q["id"] not in room.closed_questions:
+                        room.closed_questions.append(q["id"])
+            
+            await self._handle_round_transition(room)
+
     async def handle_place_stake(self, chat_id: int, room_id: str, player_id: str, username: str, text: str) -> None:
         try:
             stake_val = int(text.split(" ")[1])
@@ -410,6 +463,8 @@ class GameHandler:
                     q = await self._game_repo.get_question_by_id(q_data["id"])
                     if q:
                         room.start_final_round(q)
+                        room.current_round_name = nxt["name"]
+                        room.round_number += 1
                         await self._state_repo.save_room(room)
                         await self._ui._tg.send_message(room.chat_id, "🏆 Время ФИНАЛА!")
                         await self._ui._tg.send_message(room.chat_id, f"Тема: *{q.theme_name}*")
@@ -417,6 +472,8 @@ class GameHandler:
                         await self._ui._tg.send_message(room.chat_id, "Откройте прием ставок.", reply_markup=kb)
             else:
                 room.current_round_id = nxt["id"]
+                room.current_round_name = nxt["name"]
+                room.round_number += 1
                 room.last_board_message_id = None
                 await self._state_repo.save_room(room)
                 await self._ui._tg.send_message(room.chat_id, f"🔔 Раунд завершен! Переходим к: {nxt['name']}")

@@ -46,6 +46,13 @@ class PostgresGameRepository:
             result = await session.execute(stmt)
             return result.first() is not None
 
+    async def get_all_packages(self) -> list[dict]:
+        """Возвращает список всех доступных пакетов (id и название)."""
+        async with self._session_factory() as session:
+            stmt = select(PackageModel.id, PackageModel.title).order_by(PackageModel.id)
+            result = await session.execute(stmt)
+            return [{"id": row[0], "title": row[1]} for row in result.all()]
+
     async def save_package(self, package_dto: PackageDTO) -> int:
         """Сохранить распарсенный пакет и все вложенные сущности."""
         async with self._session_factory() as session:

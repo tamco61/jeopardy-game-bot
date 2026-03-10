@@ -29,8 +29,11 @@ class JeopardyUI:
                     row.append({"text": str(q["value"]), "callback_data": f"select_question:{room.room_id}:{q['id']}"})
             keyboard.append(row)
 
+        # Кнопка пропуска раунда (внизу табло)
+        keyboard.append([{"text": "⏩ Пропустить раунд", "callback_data": f"skip_round:{room.room_id}"}])
+
         scoreboard = self.format_scoreboard(room)
-        text = f"🎮 **Табло (Раунд {room.current_round_id})**" + scoreboard
+        text = f"🎮 **Табло: {room.current_round_name} ({room.round_number}/{room.total_rounds})**" + scoreboard
 
         # Пытаемся редактировать предыдущее сообщение, чтобы не спамить
         if room.last_board_message_id:
@@ -92,3 +95,15 @@ class JeopardyUI:
         text = "🏆 **ИГРА ОКОНЧЕНА!** 🏆\n" + scoreboard
         await self._tg.send_message(chat_id, text)
         return text
+
+    async def render_pack_selection(self, chat_id: int, packs: list[dict], room_id: str) -> None:
+        """Отрисовывает меню выбора пакета вопросов."""
+        keyboard = []
+        for p in packs:
+            keyboard.append([{"text": p["title"], "callback_data": f"select_pack:{room_id}:{p['id']}"}])
+        
+        await self._tg.send_message(
+            chat_id,
+            "📦 **Выберите пакет вопросов для игры:**",
+            reply_markup={"inline_keyboard": keyboard}
+        )

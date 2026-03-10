@@ -50,9 +50,13 @@ class StartGameUseCase:
         if not pack_exists:
             raise ValueError(f"Пакет вопросов с ID {dto.pack_id} не найден в БД.")
 
-        first_round_id = await self._game_repo.get_first_round_id(dto.pack_id)
-        if not first_round_id:
+        rounds = await self._game_repo.get_rounds_by_package(dto.pack_id)
+        if not rounds:
             raise ValueError(f"В пакете {dto.pack_id} нет раундов.")
+
+        first_round = rounds[0]
+        first_round_id = first_round["id"]
+        first_round_name = first_round["name"]
 
         # 2. Инициализация сущности Room
         room = await self._state_repo.get_room(dto.lobby_id)
@@ -70,6 +74,9 @@ class StartGameUseCase:
         # Привязываем пакет и текущий раунд
         room.package_id = dto.pack_id
         room.current_round_id = first_round_id
+        room.current_round_name = first_round_name
+        room.round_number = 1
+        room.total_rounds = len(rounds)
 
         # 3. Сохраняем состояние в Redis
         await self._state_repo.save_room(room)

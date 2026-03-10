@@ -67,6 +67,9 @@ class Room(BaseModel):
     # Привязка пакета и трекинг состояния по доске
     package_id: int | None = None
     current_round_id: int | None = None
+    current_round_name: str = ""
+    round_number: int = 1
+    total_rounds: int = 0
     closed_questions: list[int] = Field(default_factory=list)
     selecting_player_id: str | None = None
     last_board_message_id: int | None = None

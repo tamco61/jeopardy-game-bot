@@ -82,6 +82,8 @@ class TelegramRouter:
             await self._lobby.handle_leave(chat_id, room_id, player_id, username)
         elif text == "/start_game":
             await self._game.handle_start_game(chat_id, room_id, player_id, user_tg_id)
+        elif text == "/skip":
+            await self._game.handle_skip_round(chat_id, room_id, player_id)
         elif text == "/pause":
             await self._admin.handle_pause(chat_id, room_id, player_id)
         elif text == "/unpause":
@@ -110,6 +112,7 @@ class TelegramRouter:
         message_id: int = message["message_id"]
         cb_id = callback_query["id"]
 
+        user_tg_id = int(user["id"])
         room_id = f"room_{chat_id}"
         # Для команд, где ID комнаты зашит в callback_data, мы извлекаем его ниже.
         # Для команд, привязанных к чату (например, buzzer), используем room_id.
@@ -132,6 +135,18 @@ class TelegramRouter:
                 q_room = await self._state_repo.get_room(r_id)
                 if q_room:
                     await self._game.handle_select_question(chat_id, r_id, player_id, q_id, q_room)
+            await self._lobby._tg.answer_callback_query(cb_id)
+        elif data.startswith("select_pack:"):
+            # select_pack:{room_id}:{pack_id}
+            parts = data.split(":")
+            if len(parts) == 3:
+                r_id = parts[1]
+                p_id = int(parts[2])
+                await self._game.handle_select_pack(chat_id, r_id, p_id, player_id, user_tg_id)
+            await self._lobby._tg.answer_callback_query(cb_id)
+        elif data.startswith("skip_round:"):
+            r_id = data.split(":")[1]
+            await self._game.handle_skip_round(chat_id, r_id, player_id)
             await self._lobby._tg.answer_callback_query(cb_id)
         elif data.startswith("btn_room_"):
             # Нажатие на зуммер
