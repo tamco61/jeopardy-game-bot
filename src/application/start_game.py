@@ -1,7 +1,8 @@
 from pydantic import BaseModel
 
 from src.domain.room import Phase, Room
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.repositories.package import PackageRepository
+from src.infrastructure.database.repositories.round import RoundRepository
 from src.infrastructure.redis_repo import RedisStateRepository
 
 
@@ -36,21 +37,23 @@ class StartGameUseCase:
 
     def __init__(
         self,
-        game_repo: PostgresGameRepository,
+        package_repo: PackageRepository,
+        round_repo: RoundRepository,
         state_repo: RedisStateRepository,
     ) -> None:
-        self._game_repo = game_repo
+        self._package_repo = package_repo
+        self._round_repo = round_repo
         self._state_repo = state_repo
 
     async def execute(self, dto: StartGameDTO) -> StartGameResultDTO:
         """Инициализация комнаты на основе пакета вопросов."""
         # 1. Проверяем существование пакета в Postgres
-        pack_exists = await self._game_repo.get_package_by_id(dto.pack_id)
+        pack_exists = await self._package_repo.get_package_by_id(dto.pack_id)
 
         if not pack_exists:
             raise ValueError(f"Пакет вопросов с ID {dto.pack_id} не найден в БД.")
 
-        rounds = await self._game_repo.get_rounds_by_package(dto.pack_id)
+        rounds = await self._round_repo.get_rounds_by_package(dto.pack_id)
         if not rounds:
             raise ValueError(f"В пакете {dto.pack_id} нет раундов.")
 

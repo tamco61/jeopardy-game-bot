@@ -20,7 +20,10 @@ from src.application.submit_answer import SubmitAnswerDTO, SubmitAnswerUseCase
 from src.bot.router import command, callback, message
 from src.bot.ui import JeopardyUI
 from src.domain.room import Phase, Room
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.repositories.package import PackageRepository
+from src.infrastructure.database.repositories.question import QuestionRepository
+from src.infrastructure.database.repositories.round import RoundRepository
+from src.infrastructure.database.repositories.theme import ThemeRepository
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.shared.logger import get_logger
 
@@ -32,7 +35,10 @@ class GameHandler:
     def __init__(
         self,
         ui: JeopardyUI,
-        game_repo: PostgresGameRepository,
+        package_repo: PackageRepository,
+        question_repo: QuestionRepository,
+        theme_repo: ThemeRepository,
+        round_repo: RoundRepository,
         state_repo: RedisStateRepository,
         start_game_uc: StartGameUseCase,
         press_button_uc: PressButtonUseCase,
@@ -43,7 +49,10 @@ class GameHandler:
         close_final_stake_uc: CloseFinalStakeUseCase,
     ) -> None:
         self._ui = ui
-        self._game_repo = game_repo
+        self._package_repo = package_repo
+        self._question_repo = question_repo
+        self._theme_repo = theme_repo
+        self._round_repo = round_repo
         self._state_repo = state_repo
         self._start_game = start_game_uc
         self._press_button = press_button_uc
@@ -67,7 +76,7 @@ class GameHandler:
             return
 
         try:
-            packs = await self._game_repo.get_all_packages()
+            packs = await self._package_repo.get_all_packages()
             if not packs:
                 await self._ui._tg.send_message(chat_id, "⚠️ В базе данных нет доступных пакетов вопросов.")
                 return
@@ -241,7 +250,7 @@ class GameHandler:
                 # Получаем правильный ответ, чтобы ведущему было с чем сравнивать
                 correct_answer_text = "Неизвестно"
                 if room.current_question:
-                    q = await self._game_repo.get_question_by_id(room.current_question.question_id)
+                    q = await self._question_repo.get_question_by_id(room.current_question.question_id)
                     if q:
                         correct_answer_text = q.answer_text
 
@@ -296,7 +305,7 @@ class GameHandler:
 
                 # Проверка завершения раунда
                 if room.current_round_id:
-                    board_data = await self._game_repo.get_board_for_round(room.current_round_id)
+                    board_data = await self._theme_repo.get_board_for_round(room.current_round_id)
                     all_q_ids = [q["id"] for theme in board_data for q in theme["questions"]]
                     if room.is_round_finished(all_q_ids):
                         await self._handle_round_transition(room)
@@ -326,7 +335,7 @@ class GameHandler:
 
     async def render_board(self, chat_id: int, room: Room) -> None:
         if not room.current_round_id: return
-        board_data = await self._game_repo.get_board_for_round(room.current_round_id)
+        board_data = await self._theme_repo.get_board_for_round(room.current_round_id)
         await self._ui.render_board(chat_id, room, board_data)
 
     async def _activate_button(self, room_id: str, chat_id: int, message_id: int, delay: float) -> None:
@@ -417,7 +426,7 @@ class GameHandler:
         # Имитируем завершение раунда, чтобы сработал переход к следующему
         # Для этого просто находим все ID вопросов текущего раунда и добавляем их в закрытые
         if room.current_round_id:
-            board_data = await self._game_repo.get_board_for_round(room.current_round_id)
+            board_data = await self._theme_repo.get_board_for_round(room.current_round_id)
             for theme in board_data:
                 for q in theme["questions"]:
                     if q["id"] not in room.closed_questions:
@@ -512,7 +521,7 @@ class GameHandler:
 
         # 2. Проверяем, закончился ли текущий раунд
         if not room.current_round_id: return
-        board_data = await self._game_repo.get_board_for_round(room.current_round_id)
+        board_data = await self._theme_repo.get_board_for_round(room.current_round_id)
         all_q_ids = [q["id"] for theme in board_data for q in theme["questions"]]
         
         if not room.is_round_finished(all_q_ids):
@@ -521,16 +530,16 @@ class GameHandler:
 
         # 3. Переход к следующему раунду
         if not room.package_id: return
-        rounds: list[dict] = await self._game_repo.get_rounds_by_package(room.package_id)
+        rounds: list[dict] = await self._round_repo.get_rounds_by_package(room.package_id)
         idx = next((i for i, r in enumerate(rounds) if r["id"] == room.current_round_id), -1)
 
         if idx != -1 and idx + 1 < len(rounds):
             nxt = rounds[idx + 1]
             if nxt["is_final"]:
-                board = await self._game_repo.get_board_for_round(nxt["id"])
+                board = await self._theme_repo.get_board_for_round(nxt["id"])
                 if board and board[0]["questions"]:
                     q_data = board[0]["questions"][0]
-                    q = await self._game_repo.get_question_by_id(q_data["id"])
+                    q = await self._question_repo.get_question_by_id(q_data["id"])
                     if q:
                         room.start_final_round(q)
                         room.current_round_name = nxt["name"]

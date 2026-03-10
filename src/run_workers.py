@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.infrastructure.database.base import build_engine, build_session_factory
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.repositories.package import PackageRepository
 from src.infrastructure.telegram import TelegramHttpClient
 from src.shared.config import AppSettings
 from src.shared.logger import get_logger
@@ -28,7 +28,7 @@ async def main() -> None:
     try:
         engine = build_engine(settings.database_url)
         session_factory = build_session_factory(engine)
-        game_repo = PostgresGameRepository(session_factory)
+        package_repo = PackageRepository(session_factory)
         logger.info("✅ Подключено к PostgreSQL (для парсера)")
     except SQLAlchemyError as e:
         logger.error(f"❌ Критическая ошибка БД: {e}")
@@ -41,7 +41,7 @@ async def main() -> None:
     # 3. Инициализация воркеров
     parser_worker = SiqParserWorker(
         rabbitmq_url=settings.rabbitmq_url,
-        game_repo=game_repo,
+        package_repo=package_repo,
     )
 
     sender_worker = TelegramSenderWorker(

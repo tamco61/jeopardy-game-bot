@@ -31,7 +31,10 @@ from src.bot.handlers.game import GameHandler
 from src.bot.handlers.lobby import LobbyHandler
 from src.bot.ui import JeopardyUI
 from src.infrastructure.database.base import build_engine, build_session_factory
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.repositories.package import PackageRepository
+from src.infrastructure.database.repositories.question import QuestionRepository
+from src.infrastructure.database.repositories.round import RoundRepository
+from src.infrastructure.database.repositories.theme import ThemeRepository
 from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
@@ -51,7 +54,10 @@ async def main() -> None:
     try:
         engine = build_engine(settings.database_url)
         session_factory = build_session_factory(engine)
-        game_repo = PostgresGameRepository(session_factory)
+        package_repo = PackageRepository(session_factory)
+        question_repo = QuestionRepository(session_factory)
+        round_repo = RoundRepository(session_factory)
+        theme_repo = ThemeRepository(session_factory)
         logger.info("✅ Подключено к PostgreSQL")
     except SQLAlchemyError:
         logger.error("❌ Критическая ошибка подключения к PostgreSQL")
@@ -89,12 +95,13 @@ async def main() -> None:
 
     press_uc = PressButtonUseCase(state_repo)
     start_game_uc = StartGameUseCase(
-        game_repo=game_repo,
+        package_repo=package_repo,
+        round_repo=round_repo,
         state_repo=state_repo,
     )
     submit_answer_uc = SubmitAnswerUseCase(state_repo)
     select_question_uc = SelectQuestionUseCase(
-        game_repo=game_repo, state_repo=state_repo
+        question_repo=question_repo, state_repo=state_repo
     )
 
     place_stake_uc = PlaceStakeUseCase(state_repo)
@@ -115,7 +122,10 @@ async def main() -> None:
 
     game_handler = GameHandler(
         ui=ui,
-        game_repo=game_repo,
+        package_repo=package_repo,
+        question_repo=question_repo,
+        theme_repo=theme_repo,
+        round_repo=round_repo,
         state_repo=state_repo,
         start_game_uc=start_game_uc,
         press_button_uc=press_uc,

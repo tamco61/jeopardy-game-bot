@@ -7,7 +7,7 @@ from typing import Any
 from anyio import Path
 
 from src.application.parser.siq_parser import SiqParser
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.repositories.package import PackageRepository
 from src.workers.base import BaseWorker
 
 
@@ -17,14 +17,14 @@ class SiqParserWorker(BaseWorker):
     def __init__(
         self,
         rabbitmq_url: str,
-        game_repo: PostgresGameRepository,
+        package_repo: PackageRepository,
     ) -> None:
         super().__init__(
             rabbitmq_url=rabbitmq_url,
             queue_name="siq_parse_tasks",
             name="parser",
         )
-        self._repo = game_repo
+        self._repo = package_repo
         self._parser = SiqParser()
 
     async def _process_message(self, message: dict[str, Any]) -> None:
