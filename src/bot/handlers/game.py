@@ -237,9 +237,22 @@ class GameHandler:
                         {"text": "❌ Неверно", "callback_data": f"verdict:{room_id}:no:{player_id}"}
                     ]]
                 }
+                
+                # Получаем правильный ответ, чтобы ведущему было с чем сравнивать
+                correct_answer_text = "Неизвестно"
+                if room.current_question:
+                    q = await self._game_repo.get_question_by_id(room.current_question.question_id)
+                    if q:
+                        correct_answer_text = q.answer_text
+
                 await self._ui._tg.send_message(
                     chat_id=room.host_telegram_id,
-                    text=f"Игрок @{username} ответил: *{text}*\nВаш вердикт:",
+                    text=(
+                        f"Игрок @{username} дал ответ!\n\n"
+                        f"🔸 **Его ответ:** {text}\n"
+                        f"🔹 **Правильный ответ:** {correct_answer_text}\n\n"
+                        f"Ваш вердикт?"
+                    ),
                     reply_markup=keyboard,
                 )
 
@@ -363,13 +376,16 @@ class GameHandler:
                 await self._ui._tg.send_message(chat_id, "⏰ Время истекло! Никто не ответил.")
                 # Вызываем переход (он внутри себя закроет вопрос и проверит раунд)
                 await self._handle_round_transition(room)
+                
+                # Если мы остались в фазе табло, нужно его отрисовать
+                if room.phase == Phase.BOARD_VIEW:
+                    await self.render_board(chat_id, room)
         except asyncio.CancelledError:
             # Считаем сколько времени прошло и вычитаем
             elapsed = time.time() - start_time
             self._remaining_thinking_time[room_id] = max(0.0, timeout - elapsed)
             logger.debug(f"Таймер вопроса приостановлен. Осталось: {self._remaining_thinking_time[room_id]:.1f}с")
 
-    @command("/skip")
     @callback("skip_round:")
     async def handle_skip_round(self, chat_id: int, room_id: str, player_id: str, data: str = None, cb_id: str = None) -> None:
         """Принудительный пропуск текущего раунда (только для хоста)."""
@@ -407,6 +423,8 @@ class GameHandler:
                     if q["id"] not in room.closed_questions:
                         room.closed_questions.append(q["id"])
             
+            # Сохраняем перед проверкой перехода, чтобы is_round_finished вернул True
+            await self._state_repo.save_room(room)
             await self._handle_round_transition(room)
 
         if cb_id: 
@@ -487,9 +505,10 @@ class GameHandler:
         if room.current_question:
             room.closed_questions.append(room.current_question.question_id)
             room.current_question = None
-            room.phase = Phase.BOARD_VIEW
-            await self._state_repo.save_room(room)
-            await self._state_repo.release_button(f"room_{room.chat_id}")
+            
+        room.phase = Phase.BOARD_VIEW
+        await self._state_repo.save_room(room)
+        await self._state_repo.release_button(f"room_{room.chat_id}")
 
         # 2. Проверяем, закончился ли текущий раунд
         if not room.current_round_id: return
@@ -526,6 +545,7 @@ class GameHandler:
                 room.current_round_name = nxt["name"]
                 room.round_number += 1
                 room.last_board_message_id = None
+                room.phase = Phase.BOARD_VIEW
                 await self._state_repo.save_room(room)
                 await self._ui._tg.send_message(room.chat_id, f"🔔 Раунд завершен! Переходим к: {nxt['name']}")
                 await self.render_board(room.chat_id, room)

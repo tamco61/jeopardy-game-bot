@@ -58,10 +58,12 @@ class Router:
         """Инжектит необходимые аргументы в обработчик по их именам и вызывает его."""
         sig = inspect.signature(handler)
         bound_args = {}
-        for param_name in sig.parameters:
+        for param_name, param in sig.parameters.items():
             if param_name in kwargs:
                 bound_args[param_name] = kwargs[param_name]
-            # В противном случае пропускаем аргумент. 
-            # Либо можно выбросить ошибку если нет дефолтного значения:
-            # elif param.default == inspect.Parameter.empty: logger.error...
+            elif param.default is not inspect.Parameter.empty:
+                # Если аргумент не передан, но у него есть дефолтное значение
+                bound_args[param_name] = param.default
+            else:
+                logger.error(f"Missing required argument '{param_name}' for handler {handler.__name__}")
         return await handler(**bound_args)
