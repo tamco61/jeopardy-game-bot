@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
@@ -39,13 +40,13 @@ class AdminHandler:
 
     @document()
     async def handle_document(self, chat_id: int, message: dict) -> None:
-        document = message["document"]
+        doc = message["document"]
         caption = message.get("caption", "").strip()
 
-        if not caption.startswith("/upload_pack") or not document.get("file_name", "").endswith(".siq"):
+        if not caption.startswith("/upload_pack") or not doc.get("file_name", "").endswith(".siq"):
             return
 
-        file_id = document["file_id"]
+        file_id = doc["file_id"]
         try:
             file_info = await self._tg.get_file(file_id)
             if not file_info.get("ok"):
@@ -53,10 +54,19 @@ class AdminHandler:
                 return
 
             file_path = file_info["result"]["file_path"]
-            os.makedirs("data/uploads", exist_ok=True)
-            local_path = os.path.abspath(f"data/uploads/{file_id}.siq")
 
-            await self._tg.send_message(chat_id, f"Скачиваю пакет...")
+            # todo: anyio
+            # Создаём директорию асинхронно
+            await asyncio.to_thread(os.makedirs, "data/uploads", exist_ok=True)
+
+            # Защита от path traversal
+            base_dir = os.path.abspath("data/uploads")
+            local_path = os.path.abspath(os.path.join(base_dir, f"{file_id}.siq"))
+            if not local_path.startswith(base_dir):
+                await self._tg.send_message(chat_id, "Недопустимое имя файла.")
+                return
+
+            await self._tg.send_message(chat_id, "Скачиваю пакет...")
             await self._tg.download_file(file_path, local_path)
 
             await self._rabbit.publish("siq_parse_tasks", {"file_path": local_path})
