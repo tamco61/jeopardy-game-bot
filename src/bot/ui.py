@@ -60,14 +60,48 @@ class JeopardyUI:
         for p in room.players.values():
             prefix = "👉" if p.player_id == room.selecting_player_id else "👤"
             scoreboard += f"{prefix} {p.display_name}: {p.score}\n"
-        
+
         if room.selecting_player_id:
             try:
                 picker = room.get_player(room.selecting_player_id)
                 scoreboard += f"\n🤔 Командует @{picker.username}!"
             except Exception:
-                pass
+                logger.warning("Не удалось получить выбирающего игрока", exc_info=True)
         return scoreboard
+
+    # ── Публичные делегаты к Telegram API ───────────
+
+    async def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        reply_markup: dict | None = None,
+    ) -> dict:
+        """Отправить сообщение."""
+        return await self._tg.send_message(chat_id, text, reply_markup=reply_markup)
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        reply_markup: dict | None = None,
+    ) -> dict:
+        """Отредактировать сообщение."""
+        return await self._tg.edit_message_text(
+            chat_id, message_id, text, reply_markup=reply_markup
+        )
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str = "",
+        show_alert: bool = False,
+    ) -> dict:
+        """Ответить на callback_query."""
+        return await self._tg.answer_callback_query(
+            callback_query_id, text, show_alert
+        )
 
     async def show_question(self, chat_id: int, text: str, value: int, reply_markup: dict | None = None) -> dict:
         """Показать текст вопроса в чате."""
