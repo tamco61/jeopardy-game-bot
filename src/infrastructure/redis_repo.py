@@ -1,19 +1,13 @@
 """Реализация RedisStateRepository поверх Redis.
 
 Микро-состояния FSM (LOBBY, ANSWERING и т.д.) живут здесь.
-В Postgres пишется только старт матча и итоговые результаты.
-
-Требует установки пакета ``redis``: pip install redis.
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from src.domain.player import Player
-from src.domain.question import Question, QuestionType
-from src.domain.room import Phase, Room
+from src.domain.room import Room
 
 
 class RedisStateRepository:
@@ -37,7 +31,7 @@ class RedisStateRepository:
     async def save_room(self, room: Room) -> None:
         data_json = room.model_dump_json()
         await self._redis.set(
-            self._key(room.room_id), data_json
+            self._key(room.room_id), data_json, ex=86400  # 24 ч
         )
 
     async def delete_room(self, room_id: str) -> None:
@@ -75,6 +69,16 @@ class RedisStateRepository:
         key = f"last_results:{chat_id}"
         val = await self._redis.get(key)
         return val.decode() if val else None
+
+    async def get_all_rooms(self) -> list[Room]:
+        """Получить все активные комнаты (для восстановления таймеров при старте)."""
+        keys = await self._redis.keys(f"{self._KEY_PREFIX}*")
+        rooms = []
+        for key in keys:
+            raw = await self._redis.get(key)
+            if raw:
+                rooms.append(Room.model_validate_json(raw))
+        return rooms
 
     # ── Ключ Redis ─────────────────────────────────
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TelegramUser(BaseModel):
@@ -26,29 +26,25 @@ class TelegramChat(BaseModel):
 class TelegramMessage(BaseModel):
     """Входящее сообщение."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     message_id: int
     chat: TelegramChat
-    from_user: TelegramUser | None = None
+    # Telegram шлёт поле "from", но в Python это зарезервированное слово
+    from_user: TelegramUser | None = Field(None, alias="from")
     text: str | None = None
     date: int = 0
-
-    class Config:
-        populate_by_name = True
-        # Telegram шлёт поле "from", но в Python это зарезервированное слово
-        fields = {"from_user": {"alias": "from"}}
 
 
 class CallbackQuery(BaseModel):
     """Нажатие inline-кнопки."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
-    from_user: TelegramUser
+    from_user: TelegramUser = Field(alias="from")
     message: TelegramMessage | None = None
     data: str | None = None
-
-    class Config:
-        populate_by_name = True
-        fields = {"from_user": {"alias": "from"}}
 
 
 class IncomingTelegramUpdateDTO(BaseModel):
@@ -57,33 +53,3 @@ class IncomingTelegramUpdateDTO(BaseModel):
     update_id: int
     message: TelegramMessage | None = None
     callback_query: CallbackQuery | None = None
-
-
-"""DTO для WebSocket-сообщений (фронтенд ↔ бэкенд)."""
-
-from enum import Enum
-
-
-class WSEventType(str, Enum):
-    """Типы событий WebSocket."""
-
-    # Клиент → Сервер
-    JOIN_ROOM = "join_room"
-    PRESS_BUTTON = "press_button"
-    SUBMIT_ANSWER = "submit_answer"
-
-    # Сервер → Клиент
-    ROOM_STATE = "room_state"
-    BUTTON_PRESSED = "button_pressed"
-    ANSWER_RESULT = "answer_result"
-    ROUND_STARTED = "round_started"
-    TIMER_TICK = "timer_tick"
-    ERROR = "error"
-
-
-class WebSocketMessageDTO(BaseModel):
-    """Единый формат WebSocket-сообщения."""
-
-    event: WSEventType
-    room_id: str | None = None
-    payload: dict = {}

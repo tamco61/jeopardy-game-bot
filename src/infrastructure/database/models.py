@@ -8,7 +8,6 @@ from sqlalchemy import (
     String,
     Text,
     func,
-    select,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

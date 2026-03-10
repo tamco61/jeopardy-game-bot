@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import anyio
 from aiohttp import ClientSession
 
 
@@ -103,9 +104,9 @@ class TelegramHttpClient:
         url = f"https://api.telegram.org/file/bot{self._bot_token}/{file_path}"
         async with self._session.get(url) as resp:
             resp.raise_for_status()
-            with open(destination, "wb") as f:
+            async with await anyio.open_file(destination, "wb") as f:
                 async for chunk in resp.content.iter_chunked(8192):
-                    f.write(chunk)
+                    await f.write(chunk)
 
     # ── Внутренний HTTP-метод ───────────────────────
 
@@ -119,4 +120,5 @@ class TelegramHttpClient:
             f"{self._base_url}/{method}",
             data=payload,
         ) as resp:
+            resp.raise_for_status()
             return await resp.json()

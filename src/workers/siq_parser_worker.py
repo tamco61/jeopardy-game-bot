@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from anyio import Path
 
 from src.application.parser.siq_parser import SiqParser
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.repositories.package import PackageRepository
 from src.workers.base import BaseWorker
 
 
@@ -17,14 +18,14 @@ class SiqParserWorker(BaseWorker):
     def __init__(
         self,
         rabbitmq_url: str,
-        game_repo: PostgresGameRepository,
+        package_repo: PackageRepository,
     ) -> None:
         super().__init__(
             rabbitmq_url=rabbitmq_url,
             queue_name="siq_parse_tasks",
             name="parser",
         )
-        self._repo = game_repo
+        self._repo = package_repo
         self._parser = SiqParser()
 
     async def _process_message(self, message: dict[str, Any]) -> None:
@@ -39,9 +40,9 @@ class SiqParserWorker(BaseWorker):
 
         try:
             # 1. Парсинг SIQ
-            package_dto = self._parser.parse(file_path)
+            package_dto = await asyncio.to_thread(self._parser.parse, file_path)
             self._log.info(
-                "Файл %s успешно распарсен. Название: '%s', Раундов: %d",
+                "Файл %s успешно распаршен. Название: '%s', Раундов: %d",
                 file_path,
                 package_dto.title,
                 len(package_dto.rounds),

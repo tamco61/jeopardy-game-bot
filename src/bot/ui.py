@@ -29,8 +29,11 @@ class JeopardyUI:
                     row.append({"text": str(q["value"]), "callback_data": f"select_question:{room.room_id}:{q['id']}"})
             keyboard.append(row)
 
+        # Кнопка пропуска раунда (внизу табло)
+        keyboard.append([{"text": "⏩ Пропустить раунд", "callback_data": f"skip_round:{room.room_id}"}])
+
         scoreboard = self.format_scoreboard(room)
-        text = f"🎮 **Табло (Раунд {room.current_round_id})**" + scoreboard
+        text = f"🎮 **Табло: {room.current_round_name} ({room.round_number}/{room.total_rounds})**" + scoreboard
 
         # Пытаемся редактировать предыдущее сообщение, чтобы не спамить
         if room.last_board_message_id:
@@ -57,14 +60,48 @@ class JeopardyUI:
         for p in room.players.values():
             prefix = "👉" if p.player_id == room.selecting_player_id else "👤"
             scoreboard += f"{prefix} {p.display_name}: {p.score}\n"
-        
+
         if room.selecting_player_id:
             try:
                 picker = room.get_player(room.selecting_player_id)
                 scoreboard += f"\n🤔 Командует @{picker.username}!"
             except Exception:
-                pass
+                logger.warning("Не удалось получить выбирающего игрока", exc_info=True)
         return scoreboard
+
+    # ── Публичные делегаты к Telegram API ───────────
+
+    async def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        reply_markup: dict | None = None,
+    ) -> dict:
+        """Отправить сообщение."""
+        return await self._tg.send_message(chat_id, text, reply_markup=reply_markup)
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        reply_markup: dict | None = None,
+    ) -> dict:
+        """Отредактировать сообщение."""
+        return await self._tg.edit_message_text(
+            chat_id, message_id, text, reply_markup=reply_markup
+        )
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str = "",
+        show_alert: bool = False,
+    ) -> dict:
+        """Ответить на callback_query."""
+        return await self._tg.answer_callback_query(
+            callback_query_id, text, show_alert
+        )
 
     async def show_question(self, chat_id: int, text: str, value: int, reply_markup: dict | None = None) -> dict:
         """Показать текст вопроса в чате."""
@@ -92,3 +129,15 @@ class JeopardyUI:
         text = "🏆 **ИГРА ОКОНЧЕНА!** 🏆\n" + scoreboard
         await self._tg.send_message(chat_id, text)
         return text
+
+    async def render_pack_selection(self, chat_id: int, packs: list[dict], room_id: str) -> None:
+        """Отрисовывает меню выбора пакета вопросов."""
+        keyboard = []
+        for p in packs:
+            keyboard.append([{"text": p["title"], "callback_data": f"select_pack:{room_id}:{p['id']}"}])
+        
+        await self._tg.send_message(
+            chat_id,
+            "📦 **Выберите пакет вопросов для игры:**",
+            reply_markup={"inline_keyboard": keyboard}
+        )

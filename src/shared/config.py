@@ -1,14 +1,17 @@
 """Конфигурация приложения — «Своя игра»."""
 
-from pydantic_settings import BaseSettings
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AppSettings(BaseSettings):
     """Настройки, загружаемые из переменных окружения / .env файла."""
 
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     # Postgres
     database_url: str = (
-        "postgresql+asyncpg://jeopardy:secret@localhost:5432/jeopardy_db"
+        "postgresql+asyncpg://user:password@localhost:5432/jeopardy_db"
     )
 
     # Redis
@@ -24,6 +27,11 @@ class AppSettings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    @field_validator("telegram_bot_token")
+    @classmethod
+    def token_must_not_be_empty(cls, v: str) -> str:
+        if not v:
+            raise ValueError(
+                "TELEGRAM_BOT_TOKEN не задан. Укажите токен в .env или переменной окружения."
+            )
+        return v

@@ -49,7 +49,7 @@ class BaseWorker(ABC):
                         )
                         break
 
-                    async with message.process():
+                    async with message.process(requeue=False):
                         body = json.loads(message.body.decode())
                         try:
                             await self._process_message(body)

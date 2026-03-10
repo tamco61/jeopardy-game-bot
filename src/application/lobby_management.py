@@ -89,6 +89,8 @@ class ReadyUseCase:
         if is_ready:
             room.mark_player_ready(player_id)
         else:
+            if room.phase != Phase.LOBBY:
+                raise DomainError("Нельзя снять готовность вне лобби")
             player.mark_not_ready()
 
         await self._state_repo.save_room(room)

@@ -3,8 +3,7 @@
 from pydantic import BaseModel
 
 from src.domain.errors import DomainError
-from src.domain.question import Question, QuestionType
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.repositories.question import QuestionRepository
 from src.infrastructure.redis_repo import RedisStateRepository
 
 
@@ -35,13 +34,12 @@ class SelectQuestionUseCase:
     5. Обновление состояния в Redis.
     6. Возврат результата (для формирования UI).
     """
-
     def __init__(
         self,
-        game_repo: PostgresGameRepository,
+        question_repo: QuestionRepository,
         state_repo: RedisStateRepository,
     ) -> None:
-        self._game_repo = game_repo
+        self._question_repo = question_repo
         self._state_repo = state_repo
 
     async def execute(self, dto: SelectQuestionDTO) -> SelectQuestionResult:
@@ -49,19 +47,7 @@ class SelectQuestionUseCase:
         if not room:
             raise DomainError(f"Комната {dto.room_id} не найдена.")
 
-        # Предполагаем наличие метода get_question_by_id в репозитории
-        # Для работы MVP (если метода нет), имитируем результат:
-        try:
-            question = await self._game_repo.get_question_by_id(dto.question_id)
-        except AttributeError:
-            question = Question(
-                question_id=dto.question_id,
-                theme_name="Mock",
-                text="Заглушка вопроса (MVP)",
-                answer="ответ",
-                value=100,
-                question_type=QuestionType.NORMAL,
-            )
+        question = await self._question_repo.get_question_by_id(dto.question_id)
 
         if not question:
             raise DomainError(f"Вопрос {dto.question_id} не найден.")

@@ -1,15 +1,11 @@
 """Точка входа для запуска фоновых воркеров."""
 
 import asyncio
-import os
-import sys
 
-from sqlalchemy.exc import SQLAlchemyError
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.infrastructure.database.base import build_engine, build_session_factory
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.infrastructure.database.repositories.package import PackageRepository
 from src.infrastructure.telegram import TelegramHttpClient
 from src.shared.config import AppSettings
 from src.shared.logger import get_logger
@@ -20,19 +16,15 @@ logger = get_logger(__name__)
 
 
 async def main() -> None:
-    logger.info("🚀 Запуск фоновых воркеров...")
-
     settings = AppSettings()
 
+    logger.info("🚀 Запуск фоновых воркеров...")
+
     # 1. Запуск БД
-    try:
-        engine = build_engine(settings.database_url)
-        session_factory = build_session_factory(engine)
-        game_repo = PostgresGameRepository(session_factory)
-        logger.info("✅ Подключено к PostgreSQL (для парсера)")
-    except SQLAlchemyError as e:
-        logger.error(f"❌ Критическая ошибка БД: {e}")
-        return
+    engine = build_engine(settings.database_url)
+    session_factory = build_session_factory(engine)
+    package_repo = PackageRepository(session_factory)
+    logger.info("✅ Подключено к PostgreSQL (для парсера)")
 
     # 2. Запуск Telegram клиента
     telegram_client = TelegramHttpClient(settings.telegram_bot_token)
@@ -41,7 +33,7 @@ async def main() -> None:
     # 3. Инициализация воркеров
     parser_worker = SiqParserWorker(
         rabbitmq_url=settings.rabbitmq_url,
-        game_repo=game_repo,
+        package_repo=package_repo,
     )
 
     sender_worker = TelegramSenderWorker(

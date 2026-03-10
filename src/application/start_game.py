@@ -1,7 +1,8 @@
 from pydantic import BaseModel
 
-from src.domain.room import Phase, Room
-from src.infrastructure.database.postgres_repo import PostgresGameRepository
+from src.domain.errors import DomainError
+from src.infrastructure.database.repositories.package import PackageRepository
+from src.infrastructure.database.repositories.round import RoundRepository
 from src.infrastructure.redis_repo import RedisStateRepository
 
 
@@ -36,40 +37,44 @@ class StartGameUseCase:
 
     def __init__(
         self,
-        game_repo: PostgresGameRepository,
+        package_repo: PackageRepository,
+        round_repo: RoundRepository,
         state_repo: RedisStateRepository,
     ) -> None:
-        self._game_repo = game_repo
+        self._package_repo = package_repo
+        self._round_repo = round_repo
         self._state_repo = state_repo
 
     async def execute(self, dto: StartGameDTO) -> StartGameResultDTO:
         """Инициализация комнаты на основе пакета вопросов."""
         # 1. Проверяем существование пакета в Postgres
-        pack_exists = await self._game_repo.get_package_by_id(dto.pack_id)
+        pack_exists = await self._package_repo.get_package_by_id(dto.pack_id)
 
         if not pack_exists:
             raise ValueError(f"Пакет вопросов с ID {dto.pack_id} не найден в БД.")
 
-        first_round_id = await self._game_repo.get_first_round_id(dto.pack_id)
-        if not first_round_id:
+        rounds = await self._round_repo.get_rounds_by_package(dto.pack_id)
+        if not rounds:
             raise ValueError(f"В пакете {dto.pack_id} нет раундов.")
+
+        first_round = rounds[0]
+        first_round_id = first_round["id"]
+        first_round_name = first_round["name"]
 
         # 2. Инициализация сущности Room
         room = await self._state_repo.get_room(dto.lobby_id)
         if not room:
-            # Fallback room creation
-            room = Room(
-                room_id=dto.lobby_id, chat_id=dto.chat_id, phase=Phase.LOBBY
-            )
-            room.host_id = dto.host_player_id
-            room.host_telegram_id = dto.host_telegram_id
+            raise DomainError(f"Лобби {dto.lobby_id} не найдено.")
 
-        # Переводим фазу
-        room.phase = Phase.BOARD_VIEW
+        # Переводим фазу через FSM
+        room.start_game()
         
         # Привязываем пакет и текущий раунд
         room.package_id = dto.pack_id
         room.current_round_id = first_round_id
+        room.current_round_name = first_round_name
+        room.round_number = 1
+        room.total_rounds = len(rounds)
 
         # 3. Сохраняем состояние в Redis
         await self._state_repo.save_room(room)
