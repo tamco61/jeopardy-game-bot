@@ -1,13 +1,10 @@
 import asyncio
-import os
-import sys
 
 import aio_pika
 import aiohttp
 import redis.asyncio as aioredis
-from sqlalchemy.exc import SQLAlchemyError
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.application.lobby_management import (
@@ -46,22 +43,19 @@ logger = get_logger(__name__)
 
 # ──────────────────── Main polling loop ───────────────────────────────
 async def main() -> None:
+    settings = AppSettings()
+    # logging.basicConfig(level=settings.log_level.upper())
+
     logger.info("🚀 Запуск бота (long polling)...")
 
-    settings = AppSettings()
-
     # Инициализация БД
-    try:
-        engine = build_engine(settings.database_url)
-        session_factory = build_session_factory(engine)
-        package_repo = PackageRepository(session_factory)
-        question_repo = QuestionRepository(session_factory)
-        round_repo = RoundRepository(session_factory)
-        theme_repo = ThemeRepository(session_factory)
-        logger.info("✅ Подключено к PostgreSQL")
-    except SQLAlchemyError:
-        logger.error("❌ Критическая ошибка подключения к PostgreSQL")
-        raise
+    engine = build_engine(settings.database_url)
+    session_factory = build_session_factory(engine)
+    package_repo = PackageRepository(session_factory)
+    question_repo = QuestionRepository(session_factory)
+    round_repo = RoundRepository(session_factory)
+    theme_repo = ThemeRepository(session_factory)
+    logger.info("✅ Подключено к PostgreSQL")
 
     # Инициализация Redis
     try:
@@ -110,7 +104,7 @@ async def main() -> None:
 
     # Handlers & UI
     ui = JeopardyUI(telegram_client)
-    
+
     lobby_handler = LobbyHandler(
         tg_client=telegram_client,
         create_lobby_uc=create_lobby_uc,
@@ -152,6 +146,9 @@ async def main() -> None:
 
     await telegram_client.start()
 
+    # Восстанавливаем таймеры для комнат, оставшихся в Redis с прошлого сеанса
+    await game_handler.restore_timers()
+
     try:
         await telegram_client.delete_webhook()
         offset: int | None = None
@@ -162,7 +159,7 @@ async def main() -> None:
                 data = await telegram_client.get_updates(offset=offset)
 
                 if not data or not data.get("ok"):
-                    logger.error(f"❌ Ошибка от Telegram: {data}")
+                    logger.error("❌ Ошибка от Telegram: %s", data)
                     await asyncio.sleep(5)
                     continue
 
@@ -171,7 +168,7 @@ async def main() -> None:
                     await router.handle_update(update)
 
             except aiohttp.ClientError as e:
-                logger.error(f"❌ Сетевая ошибка при получении обновлений: {e}")
+                logger.error("❌ Сетевая ошибка при получении обновлений: %s", e)
                 await asyncio.sleep(5)
                 continue
 
@@ -179,7 +176,7 @@ async def main() -> None:
                 logger.info("🛑 Остановка...")
                 break
             except Exception as e:  # noqa: BLE001
-                logger.exception(f"❌ Критическая Ошибка: {e}")
+                logger.exception("❌ Критическая Ошибка: %s", e)
                 await asyncio.sleep(5)
     finally:
         await telegram_client.close()
