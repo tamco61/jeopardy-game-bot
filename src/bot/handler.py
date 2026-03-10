@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 
 class TelegramRouter:
     """Диспетчер входящих Telegram-обновлений.
-    
+
     Теперь использует декораторы и реестр `Router` для маршрутизации.
     """
 
@@ -23,7 +23,7 @@ class TelegramRouter:
         admin_handler: AdminHandler,
     ) -> None:
         self._state_repo = state_repo
-        
+
         self.router = Router()
         self.router.include_class(lobby_handler)
         self.router.include_class(game_handler)
@@ -31,7 +31,7 @@ class TelegramRouter:
 
     async def handle_update(self, update: dict) -> None:
         """Главный входной пункт для всех Telegram-обновлений."""
-        logger.info(f"📩 Получен update: {update.get('update_id')}")
+        logger.info("📩 Получен update: %s", update.get("update_id"))
 
         message: dict | None = update.get("message")
         if message:
@@ -52,10 +52,6 @@ class TelegramRouter:
         username = user.get("username") or user.get("first_name", "unknown")
 
         room_id = f"room_{chat_id}"
-        if is_private:
-            active_room = await self._state_repo.get_active_room(user_tg_id)
-            if active_room:
-                room_id = active_room
 
         lobby_dto = BaseLobbyDTO(
             room_id=room_id,
@@ -89,18 +85,26 @@ class TelegramRouter:
                 handler = self.router.commands[cmd]
                 await self.router.execute_handler(handler, **kwargs)
         elif text:
-            # Для не-команд передаем state комнаты
+            # Для не-команд в ЛС ищем активную комнату игрока
+            if is_private:
+                active_room = await self._state_repo.get_active_room(user_tg_id)
+                if active_room:
+                    room_id = active_room
+                    kwargs["room_id"] = room_id
+
             room = await self._state_repo.get_room(room_id)
             kwargs["room"] = room
             for handler in self.router.message_handlers:
-                await self.router.execute_handler(handler, **kwargs)
+                result = await self.router.execute_handler(handler, **kwargs)
+                if result:
+                    break
 
     async def _handle_callback(self, callback_query: dict) -> None:
         user: dict = callback_query.get("from", {})
         player_id = str(user.get("id", ""))
         username: str = user.get("username") or user.get("first_name", "unknown")
         user_tg_id = int(user.get("id", 0))
-        
+
         data: str = callback_query.get("data", "")
         message: dict = callback_query.get("message", {})
         chat_id = message.get("chat", {}).get("id", 0)
@@ -126,4 +130,3 @@ class TelegramRouter:
             if data.startswith(prefix):
                 await self.router.execute_handler(handler, **kwargs)
                 return
-
