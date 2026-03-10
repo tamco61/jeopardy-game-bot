@@ -54,8 +54,12 @@ class Router:
             elif hasattr(method, "__document__"):
                 self.document_handlers.append(method)
 
-    async def execute_handler(self, handler: Callable, **kwargs: Any) -> Any:
-        """Инжектит необходимые аргументы в обработчик по их именам и вызывает его."""
+    async def execute_handler(self, handler: Callable, **kwargs: Any) -> bool:
+        """Инжектит необходимые аргументы в обработчик по их именам и вызывает его.
+
+        Returns:
+            True — обработчик был вызван, False — не хватило обязательного аргумента.
+        """
         sig = inspect.signature(handler)
         bound_args = {}
         for param_name, param in sig.parameters.items():
@@ -65,5 +69,11 @@ class Router:
                 # Если аргумент не передан, но у него есть дефолтное значение
                 bound_args[param_name] = param.default
             else:
-                logger.error(f"Missing required argument '{param_name}' for handler {handler.__name__}")
-        return await handler(**bound_args)
+                logger.error(
+                    "Missing required argument '%s' for handler %s",
+                    param_name,
+                    handler.__name__,
+                )
+                return False
+        await handler(**bound_args)
+        return True
