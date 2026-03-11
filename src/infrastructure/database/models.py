@@ -148,13 +148,14 @@ class QuestionModel(Base):
 
 
 # ────────────────────────────────────────────────────
-#  ИСТОРИЯ ИГР (Холодный стейт — итоги матчей)
+#  ИСТОРИЯ ИГР
 # ────────────────────────────────────────────────────
-# Сюда записывается:
-#   1. Старт матча (game_sessions со статусом in_progress).
-#   2. Итоговые результаты (game_players с final_score).
-# Всё промежуточное (FSM-состояние, кто нажал кнопку и т.д.)
-# живёт ТОЛЬКО в Redis и НЕ пишется в Postgres.
+# Пишется при:
+#   1. Старте матча (create_session, status=in_progress).
+#   2. После каждого вердикта (update_session — чекпоинт для восстановления).
+#   3. Окончании игры (mark_finished, status=finished, final_score).
+# При полном блэкауте Core читает in_progress-сессии из Postgres
+# и восстанавливает Room в Redis в фазе BOARD_VIEW.
 
 
 class GameSessionModel(Base):
@@ -171,11 +172,47 @@ class GameSessionModel(Base):
         nullable=True,
     )
     chat_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+
+    # Идентификатор Redis-комнаты (для сверки при восстановлении)
+    room_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
+    )
+
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
         default="in_progress",
     )  # in_progress | finished
+
+    # ── Поля чекпоинта (восстановление после блэкаута) ──
+    phase: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="lobby"
+    )
+    host_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    host_telegram_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    current_round_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    current_round_name: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    round_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1
+    )
+    total_rounds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1
+    )
+    selecting_player_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    last_board_message_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    # JSON-массив ID закрытых вопросов: "[1, 2, 3]"
+    closed_questions: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -193,7 +230,7 @@ class GameSessionModel(Base):
 
 
 class GamePlayerModel(Base):
-    """Связь «игрок ↔ сессия» с итоговым счётом."""
+    """Связь «игрок ↔ сессия» с текущим и итоговым счётом."""
 
     __tablename__ = "game_players"
 
@@ -205,13 +242,26 @@ class GamePlayerModel(Base):
         ForeignKey("game_sessions.id", ondelete="CASCADE"),
         nullable=False,
     )
-    user_id: Mapped[int] = mapped_column(
+    # FK на users (nullable — для веб-игроков без Telegram-аккаунта)
+    user_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
+
+    # Строковый player_id (= telegram_id.str или произвольный веб-ID)
+    player_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    username: Mapped[str] = mapped_column(
+        String(255), nullable=False, default=""
+    )
+    telegram_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Текущий счёт (обновляется на каждом чекпоинте)
+    score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Финальный счёт (заполняется при mark_finished)
     final_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     session: Mapped[GameSessionModel] = relationship(back_populates="players")
-    user: Mapped[UserModel] = relationship(back_populates="game_participations")
-
+    user: Mapped[UserModel | None] = relationship(
+        back_populates="game_participations"
+    )

@@ -76,4 +76,11 @@ class PackageRepository:
             session.add(package_model)
             await session.commit()
 
-            return package_model.id
+    async def delete_package(self, package_id: int) -> bool:
+        """Удалить пакет (rounds, themes, questions удалятся каскадно)."""
+        from sqlalchemy import delete
+        async with self._session_factory() as session:
+            stmt = delete(PackageModel).where(PackageModel.id == package_id)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0

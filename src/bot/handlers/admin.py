@@ -4,7 +4,7 @@ import os
 from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.bot.router import command, document
 from src.infrastructure.rabbit import RabbitMQPublisher
-from src.infrastructure.telegram import TelegramHttpClient
+from src.shared.interfaces import MessageGateway
 
 
 class AdminHandler:
@@ -12,7 +12,7 @@ class AdminHandler:
 
     def __init__(
         self,
-        tg_client: TelegramHttpClient,
+        tg_client: MessageGateway,
         pause_uc: PauseGameUseCase,
         unpause_uc: UnpauseGameUseCase,
         rabbit_publisher: RabbitMQPublisher,
@@ -39,14 +39,13 @@ class AdminHandler:
             await self._tg.send_message(chat_id, f"Ошибка: {e}")
 
     @document()
-    async def handle_document(self, chat_id: int, message: dict) -> None:
-        doc = message["document"]
-        caption = message.get("caption", "").strip()
+    async def handle_document(self, chat_id: int, file_id: str, file_name: str, caption: str) -> None:
+        caption = caption.strip()
 
-        if not caption.startswith("/upload_pack") or not doc.get("file_name", "").endswith(".siq"):
+        if not caption.startswith("/upload_pack") or not file_name.endswith(".siq"):
             return
 
-        file_id = doc["file_id"]
+
         try:
             file_info = await self._tg.get_file(file_id)
             if not file_info.get("ok"):

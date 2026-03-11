@@ -1,6 +1,7 @@
 import inspect
 from typing import Any, Callable
 
+from src.bot.callback import CallbackBase
 from src.shared.logger import get_logger
 
 logger = get_logger(__name__)
@@ -12,10 +13,14 @@ def command(name: str) -> Callable:
         return func
     return decorator
 
-def callback(prefix: str) -> Callable:
-    """Декоратор для регистрации обработчика callback_query по префиксу date."""
+def callback(callback_class: type[CallbackBase] | str) -> Callable:
+    """Декоратор для регистрации обработчика callback_query по префиксу или классу."""
     def decorator(func: Callable) -> Callable:
-        func.__callback__ = prefix
+        if isinstance(callback_class, str):
+            func.__callback__ = callback_class
+        else:
+            func.__callback__ = callback_class.prefix
+            func.__callback_class__ = callback_class
         return func
     return decorator
 
