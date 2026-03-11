@@ -4,7 +4,7 @@ import os
 from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.bot.router import command, document
 from src.infrastructure.rabbit import RabbitMQPublisher
-from src.infrastructure.telegram import TelegramHttpClient
+from src.shared.interfaces import MessageGateway
 
 
 class AdminHandler:
@@ -12,7 +12,7 @@ class AdminHandler:
 
     def __init__(
         self,
-        tg_client: TelegramHttpClient,
+        tg_client: MessageGateway,
         pause_uc: PauseGameUseCase,
         unpause_uc: UnpauseGameUseCase,
         rabbit_publisher: RabbitMQPublisher,

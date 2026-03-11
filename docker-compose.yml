@@ -37,5 +37,31 @@ services:
       - "5672:5672"    # AMQP
       - "15672:15672"  # Management UI (http://localhost:15672)
 
+  poller:
+    build: .
+    command: ["uv", "run", "python", "-m", "src.apps.poller.main"]
+    depends_on:
+      - rabbitmq
+    env_file: .env
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["uv", "run", "python", "-m", "src.apps.worker.main"]
+    depends_on:
+      - rabbitmq
+    env_file: .env
+    restart: unless-stopped
+
+  core:
+    build: .
+    command: ["uv", "run", "python", "-m", "src.apps.core.main"]
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    env_file: .env
+    restart: unless-stopped
+
 volumes:
   pgdata:

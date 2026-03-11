@@ -1,7 +1,7 @@
 import aiohttp
 
 from src.domain.room import Room
-from src.infrastructure.telegram import TelegramHttpClient
+from src.shared.interfaces import MessageGateway
 from src.shared.logger import get_logger
 from src.bot.callback import (
     SelectQuestionCallback,
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class JeopardyUI:
     """Презентер для управления UI «Своей Игры» в Telegram."""
 
-    def __init__(self, tg_client: TelegramHttpClient) -> None:
+    def __init__(self, tg_client: MessageGateway) -> None:
         self._tg = tg_client
 
     async def render_board(self, chat_id: int, room: Room, board_data: list[dict]) -> dict | None:

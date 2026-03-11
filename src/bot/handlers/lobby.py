@@ -7,7 +7,7 @@ from src.application.lobby_management import (
 )
 from src.bot.router import command
 from src.infrastructure.redis_repo import RedisStateRepository
-from src.infrastructure.telegram import TelegramHttpClient
+from src.shared.interfaces import MessageGateway
 
 
 class LobbyHandler:
@@ -15,7 +15,7 @@ class LobbyHandler:
 
     def __init__(
         self,
-        tg_client: TelegramHttpClient,
+        tg_client: MessageGateway,
         create_lobby_uc: CreateLobbyUseCase,
         join_lobby_uc: JoinLobbyUseCase,
         ready_uc: ReadyUseCase,
