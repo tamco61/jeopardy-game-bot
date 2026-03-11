@@ -30,6 +30,9 @@ from src.bot.callback import (
 )
 from src.bot.ui import JeopardyUI
 from src.domain.room import Phase, Room
+from src.infrastructure.database.repositories.game_session import (
+    GameSessionRepository,
+)
 from src.infrastructure.database.repositories.package import PackageRepository
 from src.infrastructure.database.repositories.question import QuestionRepository
 from src.infrastructure.database.repositories.round import RoundRepository
@@ -57,6 +60,7 @@ class GameHandler:
         start_final_stake_uc: StartFinalStakeUseCase,
         place_stake_uc: PlaceStakeUseCase,
         close_final_stake_uc: CloseFinalStakeUseCase,
+        session_repo: GameSessionRepository | None = None,
     ) -> None:
         self._ui = ui
         self._package_repo = package_repo
@@ -71,6 +75,7 @@ class GameHandler:
         self._start_final_stake = start_final_stake_uc
         self._place_stake = place_stake_uc
         self._close_final_stake = close_final_stake_uc
+        self._session_repo = session_repo
 
         # Таймеры: room_id -> Task
         self._answer_timers: dict[str, asyncio.Task] = {}
@@ -323,6 +328,13 @@ class GameHandler:
                     )
 
                 await self._ui.show_verdict(room.chat_id, room_id, verdict_text)
+
+                # Чекпоинт: сохраняем текущее состояние в Postgres
+                if self._session_repo:
+                    try:
+                        await self._session_repo.update_session(room)
+                    except Exception as e:
+                        logger.error("Ошибка update_session: %s", e)
 
                 # Проверка завершения раунда — без дублирования вызовов
                 round_finished = False
@@ -612,6 +624,12 @@ class GameHandler:
             room.phase = Phase.RESULTS
             res_text = await self._ui.render_results(room.chat_id, room)
             await self._state_repo.save_last_results(room.chat_id, res_text)
+            # Финализация в Postgres до удаления из Redis
+            if self._session_repo:
+                try:
+                    await self._session_repo.mark_finished(room)
+                except Exception as e:
+                    logger.error("Ошибка mark_finished: %s", e)
             await self._state_repo.delete_room(room.room_id)
 
     @callback(FinalRevealCallback)
@@ -639,6 +657,12 @@ class GameHandler:
             await self._ui.send_message(room.chat_id, text)
             res_text = await self._ui.render_results(room.chat_id, room)
             await self._state_repo.save_last_results(room.chat_id, res_text)
+            # Финализация в Postgres до удаления из Redis
+            if self._session_repo:
+                try:
+                    await self._session_repo.mark_finished(room)
+                except Exception as e:
+                    logger.error("Ошибка mark_finished (final): %s", e)
             await self._state_repo.delete_room(room_id)
 
         await self._ui.answer_callback_query(cb_id)

@@ -1,6 +1,9 @@
 from pydantic import BaseModel
 
 from src.domain.errors import DomainError
+from src.infrastructure.database.repositories.game_session import (
+    GameSessionRepository,
+)
 from src.infrastructure.database.repositories.package import PackageRepository
 from src.infrastructure.database.repositories.round import RoundRepository
 from src.infrastructure.redis_repo import RedisStateRepository
@@ -40,10 +43,12 @@ class StartGameUseCase:
         package_repo: PackageRepository,
         round_repo: RoundRepository,
         state_repo: RedisStateRepository,
+        session_repo: GameSessionRepository | None = None,
     ) -> None:
         self._package_repo = package_repo
         self._round_repo = round_repo
         self._state_repo = state_repo
+        self._session_repo = session_repo
 
     async def execute(self, dto: StartGameDTO) -> StartGameResultDTO:
         """Инициализация комнаты на основе пакета вопросов."""
@@ -79,7 +84,18 @@ class StartGameUseCase:
         # 3. Сохраняем состояние в Redis
         await self._state_repo.save_room(room)
 
-        # 4. Возвращаем DTO
+        # 4. Создаём запись в Postgres (для восстановления после блэкаута)
+        if self._session_repo:
+            try:
+                await self._session_repo.create_session(room)
+            except Exception as e:
+                # Не ломаем игру из-за ошибки персистентности
+                import logging
+                logging.getLogger(__name__).error(
+                    "Ошибка create_session: %s", e
+                )
+
+        # 5. Возвращаем DTO
         return StartGameResultDTO(
             lobby_id=room.room_id,
             chat_id=room.chat_id,

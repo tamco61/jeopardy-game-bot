@@ -20,6 +20,9 @@ from src.bot.handlers.game import GameHandler
 from src.bot.handlers.lobby import LobbyHandler
 from src.bot.ui import JeopardyUI
 from src.infrastructure.database.base import build_engine, build_session_factory
+from src.infrastructure.database.repositories.game_session import (
+    GameSessionRepository,
+)
 from src.infrastructure.database.repositories.package import PackageRepository
 from src.infrastructure.database.repositories.question import QuestionRepository
 from src.infrastructure.database.repositories.round import RoundRepository
@@ -45,6 +48,69 @@ event_adapter = TypeAdapter(
     CommandEvent | TextEvent | ButtonClickEvent | DocumentEvent
 )
 
+async def _recover_rooms(
+    session_repo,
+    state_repo,
+    theme_repo,
+    ui,
+    log,
+) -> None:
+    """Восстанавливает комнаты из Postgres в Redis после полного блэкаута.
+
+    Для каждой in_progress-сессии:
+    1. Если комната уже есть в Redis — пропускаем (она живая).
+    2. Если нет — строим Room из сохранённого чекпоинта, сохраняем в Redis
+       и отправляем сообщение в чат с уведомлением о восстановлении.
+    """
+    try:
+        sessions = await session_repo.get_active_sessions()
+    except Exception as e:
+        log.error("Ошибка при получении активных сессий: %s", e)
+        return
+
+    if not sessions:
+        return
+
+    log.info("🔄 Найдено %d незавершённых сессий, проверяем Redis...", len(sessions))
+
+    from src.infrastructure.database.repositories.game_session import (
+        GameSessionRepository,
+    )
+
+    for sess in sessions:
+        try:
+            existing = await state_repo.get_room(sess.room_id)
+            if existing:
+                log.debug(
+                    "Комната %s уже в Redis, пропускаем", sess.room_id
+                )
+                continue
+
+            room = GameSessionRepository.rebuild_room(sess)
+            await state_repo.save_room(room)
+            log.info(
+                "♻️  Комната %s восстановлена из Postgres (chat_id=%d)",
+                room.room_id,
+                room.chat_id,
+            )
+
+            # Уведомляем чат и отрисовываем табло
+            await ui.send_message(
+                room.chat_id,
+                "⚠️ Бот перезапущен. Игра восстановлена с последнего чекпоинта.",
+            )
+            if room.current_round_id:
+                board_data = await theme_repo.get_board_for_round(
+                    room.current_round_id
+                )
+                await ui.render_board(room.chat_id, room, board_data)
+
+        except Exception as e:
+            log.error(
+                "Ошибка восстановления сессии id=%d: %s", sess.id, e
+            )
+
+
 async def main() -> None:
     settings = AppSettings()
 
@@ -57,6 +123,7 @@ async def main() -> None:
     question_repo = QuestionRepository(session_factory)
     round_repo = RoundRepository(session_factory)
     theme_repo = ThemeRepository(session_factory)
+    session_repo = GameSessionRepository(session_factory)
     logger.info("✅ Подключено к PostgreSQL")
 
     # Инициализация Redis
@@ -93,7 +160,10 @@ async def main() -> None:
 
     press_uc = PressButtonUseCase(state_repo)
     start_game_uc = StartGameUseCase(
-        package_repo=package_repo, round_repo=round_repo, state_repo=state_repo,
+        package_repo=package_repo,
+        round_repo=round_repo,
+        state_repo=state_repo,
+        session_repo=session_repo,
     )
     submit_answer_uc = SubmitAnswerUseCase(state_repo)
     select_question_uc = SelectQuestionUseCase(
@@ -130,6 +200,7 @@ async def main() -> None:
         start_final_stake_uc=start_final_stake_uc,
         place_stake_uc=place_stake_uc,
         close_final_stake_uc=close_final_stake_uc,
+        session_repo=session_repo,
     )
 
     admin_handler = AdminHandler(
@@ -145,6 +216,9 @@ async def main() -> None:
         game_handler=game_handler,
         admin_handler=admin_handler,
     )
+
+    # Восстановление после блэкаута: читаем незавершённые сессии из Postgres
+    await _recover_rooms(session_repo, state_repo, theme_repo, ui, logger)
 
     # Восстанавливаем таймеры
     await game_handler.restore_timers()
