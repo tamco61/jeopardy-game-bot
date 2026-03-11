@@ -3,6 +3,12 @@ import aiohttp
 from src.domain.room import Room
 from src.infrastructure.telegram import TelegramHttpClient
 from src.shared.logger import get_logger
+from src.bot.callback import (
+    SelectQuestionCallback,
+    SkipRoundCallback,
+    PressButtonCallback,
+    SelectPackCallback,
+)
 
 logger = get_logger(__name__)
 
@@ -26,11 +32,11 @@ class JeopardyUI:
                 if q["id"] in room.closed_questions:
                     row.append({"text": "❌", "callback_data": "ignore"})
                 else:
-                    row.append({"text": str(q["value"]), "callback_data": f"select_question:{room.room_id}:{q['id']}"})
+                    row.append({"text": str(q["value"]), "callback_data": SelectQuestionCallback(room_id=str(room.room_id), question_id=q['id']).pack()})
             keyboard.append(row)
 
         # Кнопка пропуска раунда (внизу табло)
-        keyboard.append([{"text": "⏩ Пропустить раунд", "callback_data": f"skip_round:{room.room_id}"}])
+        keyboard.append([{"text": "⏩ Пропустить раунд", "callback_data": SkipRoundCallback(room_id=str(room.room_id)).pack()}])
 
         scoreboard = self.format_scoreboard(room)
         text = f"🎮 **Табло: {room.current_round_name} ({room.round_number}/{room.total_rounds})**" + scoreboard
@@ -120,7 +126,7 @@ class JeopardyUI:
 
     async def render_buzzer(self, chat_id: int, message_id: int, text: str = "Жмите кнопку!") -> None:
         """Восстановить кнопку ответа на сообщении."""
-        markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": f"btn_room_{chat_id}"}]]}
+        markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": PressButtonCallback(chat_id=chat_id).pack()}]]}
         await self._tg.edit_message_text(chat_id, message_id, text, reply_markup=markup)
 
     async def render_results(self, chat_id: int, room: Room) -> str:
@@ -134,7 +140,7 @@ class JeopardyUI:
         """Отрисовывает меню выбора пакета вопросов."""
         keyboard = []
         for p in packs:
-            keyboard.append([{"text": p["title"], "callback_data": f"select_pack:{room_id}:{p['id']}"}])
+            keyboard.append([{"text": p["title"], "callback_data": SelectPackCallback(room_id=str(room_id), pack_id=p['id']).pack()}])
         
         await self._tg.send_message(
             chat_id,

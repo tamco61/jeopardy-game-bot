@@ -128,5 +128,14 @@ class TelegramRouter:
 
         for prefix, handler in self.router.callbacks.items():
             if data.startswith(prefix):
+                callback_class = getattr(handler, "__callback_class__", None)
+                if callback_class:
+                    try:
+                        parsed_data = callback_class.parse(data)
+                        kwargs["data"] = parsed_data
+                    except Exception as e:
+                        logger.error("Failed to parse callback data '%s': %s", data, e)
+                        return
+
                 await self.router.execute_handler(handler, **kwargs)
                 return

@@ -18,6 +18,16 @@ from src.application.special_events import (
 from src.application.start_game import StartGameDTO, StartGameUseCase
 from src.application.submit_answer import SubmitAnswerDTO, SubmitAnswerUseCase
 from src.bot.router import command, callback, message
+from src.bot.callback import (
+    SelectPackCallback,
+    SelectQuestionCallback,
+    PressButtonCallback,
+    VerdictCallback,
+    SkipRoundCallback,
+    FinalStartStakesCallback,
+    FinalCloseStakesCallback,
+    FinalRevealCallback,
+)
 from src.bot.ui import JeopardyUI
 from src.domain.room import Phase, Room
 from src.infrastructure.database.repositories.package import PackageRepository
@@ -86,13 +96,9 @@ class GameHandler:
             logger.error("Ошибка получения списка паков: %s", e)
             await self._ui.send_message(chat_id, "❌ Произошла ошибка при получении списка пакетов.")
 
-    @callback("select_pack:")
-    async def handle_select_pack(self, chat_id: int, player_id: str, user_tg_id: int, data: str, cb_id: str) -> None:
-        parts = data.split(":")
-        if len(parts) != 3:
-            await self._ui.answer_callback_query(cb_id)
-            return
-        room_id, pack_id = parts[1], int(parts[2])
+    @callback(SelectPackCallback)
+    async def handle_select_pack(self, chat_id: int, player_id: str, user_tg_id: int, data: SelectPackCallback, cb_id: str) -> None:
+        room_id, pack_id = data.room_id, data.pack_id
 
         room = await self._state_repo.get_room(room_id)
         if room and room.host_id != player_id:
@@ -121,13 +127,9 @@ class GameHandler:
         finally:
             await self._ui.answer_callback_query(cb_id)
 
-    @callback("select_question:")
-    async def handle_select_question(self, chat_id: int, player_id: str, data: str, cb_id: str) -> None:
-        parts = data.split(":")
-        if len(parts) != 3:
-            await self._ui.answer_callback_query(cb_id)
-            return
-        room_id, q_id = parts[1], int(parts[2])
+    @callback(SelectQuestionCallback)
+    async def handle_select_question(self, chat_id: int, player_id: str, data: SelectQuestionCallback, cb_id: str) -> None:
+        room_id, q_id = data.room_id, data.question_id
         room = await self._state_repo.get_room(room_id)
         if not room:
             await self._ui.answer_callback_query(cb_id)
@@ -144,7 +146,7 @@ class GameHandler:
 
             if res.phase == Phase.READING.value:
                 kb = {
-                    "inline_keyboard": [[{"text": "🔴 Ждите...", "callback_data": f"btn_room_{chat_id}"}]]
+                    "inline_keyboard": [[{"text": "🔴 Ждите...", "callback_data": PressButtonCallback(chat_id=chat_id).pack()}]]
                 }
                 sent_msg = await self._ui.send_message(
                     room.chat_id,
@@ -172,7 +174,7 @@ class GameHandler:
                 )
             elif res.phase == Phase.FINAL_ROUND.value:
                 kb = {
-                    "inline_keyboard": [[{"text": "🏁 Прием ставок", "callback_data": f"final_start_stakes:{room_id}"}]]
+                    "inline_keyboard": [[{"text": "🏁 Прием ставок", "callback_data": FinalStartStakesCallback(room_id=room_id).pack()}]]
                 }
                 await self._ui.send_message(
                     chat_id,
@@ -185,7 +187,7 @@ class GameHandler:
         finally:
             await self._ui.answer_callback_query(cb_id)
 
-    @callback("btn_room_")
+    @callback(PressButtonCallback)
     async def handle_press_button(
         self,
         chat_id: int,
@@ -257,8 +259,8 @@ class GameHandler:
 
                 keyboard = {
                     "inline_keyboard": [[
-                        {"text": "✅ Верно", "callback_data": f"verdict:{room_id}:yes:{player_id}"},
-                        {"text": "❌ Неверно", "callback_data": f"verdict:{room_id}:no:{player_id}"}
+                        {"text": "✅ Верно", "callback_data": VerdictCallback(room_id=room_id, verdict="yes", target_player_id=player_id).pack()},
+                        {"text": "❌ Неверно", "callback_data": VerdictCallback(room_id=room_id, verdict="no", target_player_id=player_id).pack()}
                     ]]
                 }
 
@@ -293,17 +295,14 @@ class GameHandler:
         except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error("Ошибка при сохранении ответа: %s", e)
 
-    @callback("verdict:")
-    async def handle_verdict(self, chat_id: int, message_id: int, data: str, cb_id: str) -> None:
-        parts = data.split(":")
-        # verdict:{room_id}:{yes/no}:{player_id}
-        if len(parts) != 4: return
-        room_id = parts[1]
+    @callback(VerdictCallback)
+    async def handle_verdict(self, chat_id: int, message_id: int, data: VerdictCallback, cb_id: str) -> None:
+        room_id = data.room_id
         room = await self._state_repo.get_room(room_id)
         if not room: return
 
         if room.phase == Phase.ANSWERING:
-            verdict, target_player_id = parts[2], parts[3]
+            verdict, target_player_id = data.verdict, data.target_player_id
             is_correct = verdict == "yes"
             try:
                 room.resolve_answer(target_player_id, is_correct)
@@ -356,7 +355,7 @@ class GameHandler:
         room.activate_buzzer()
         await self._state_repo.save_room(room)
 
-        markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": f"btn_room_{chat_id}"}]]}
+        markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": PressButtonCallback(chat_id=chat_id).pack()}]]}
         await self._ui.edit_message_text(chat_id, message_id, "Жмите кнопку!", reply_markup=markup)
 
         # Запуск общего таймера вопроса (10 сек)
@@ -432,11 +431,11 @@ class GameHandler:
                 self._answer_timers[room.room_id] = tmr
                 logger.info("Восстановлен таймер ответа для комнаты %s", room.room_id)
 
-    @callback("skip_round:")
-    async def handle_skip_round(self, chat_id: int, room_id: str, player_id: str, data: str = None, cb_id: str = None) -> None:
+    @callback(SkipRoundCallback)
+    async def handle_skip_round(self, chat_id: int, room_id: str, player_id: str, data: SkipRoundCallback = None, cb_id: str = None) -> None:
         """Принудительный пропуск текущего раунда (только для хоста)."""
         if data:
-            room_id = data.split(":")[1]
+            room_id = data.room_id
 
         room = await self._state_repo.get_room(room_id)
         if not room:
@@ -489,9 +488,9 @@ class GameHandler:
         except (SQLAlchemyError, aioredis.RedisError) as e:
             await self._ui.send_message(chat_id, f"Ошибка: {e}")
 
-    @callback("final_start_stakes:")
-    async def handle_final_start_stakes(self, chat_id: int, data: str, cb_id: str) -> None:
-        room_id = data.split(":")[1]
+    @callback(FinalStartStakesCallback)
+    async def handle_final_start_stakes(self, chat_id: int, data: FinalStartStakesCallback, cb_id: str) -> None:
+        room_id = data.room_id
         room = await self._state_repo.get_room(room_id)
         if not room: return
         if room.phase == Phase.FINAL_ROUND:
@@ -499,7 +498,7 @@ class GameHandler:
                 await self._start_final_stake.execute(room_id)
                 kb = {
                     "inline_keyboard": [[
-                        {"text": "🔒 Закрыть ставки", "callback_data": f"final_close_stakes:{room_id}"}
+                        {"text": "🔒 Закрыть ставки", "callback_data": FinalCloseStakesCallback(room_id=room_id).pack()}
                     ]]
                 }
                 await self._ui.send_message(
@@ -512,9 +511,9 @@ class GameHandler:
                 logger.error("Ошибка старта финальных ставок: %s", e)
         await self._ui.answer_callback_query(cb_id)
 
-    @callback("final_close_stakes:")
-    async def handle_final_close_stakes(self, chat_id: int, data: str, cb_id: str) -> None:
-        room_id = data.split(":")[1]
+    @callback(FinalCloseStakesCallback)
+    async def handle_final_close_stakes(self, chat_id: int, data: FinalCloseStakesCallback, cb_id: str) -> None:
+        room_id = data.room_id
         room = await self._state_repo.get_room(room_id)
         if not room: return
         if room.phase == Phase.FINAL_STAKE:
@@ -522,7 +521,7 @@ class GameHandler:
                 await self._close_final_stake.execute(room_id)
                 kb = {
                     "inline_keyboard": [[
-                        {"text": "📊 Огласить результаты", "callback_data": f"final_reveal:{room_id}"}
+                        {"text": "📊 Огласить результаты", "callback_data": FinalRevealCallback(room_id=room_id).pack()}
                     ]]
                 }
                 await self._ui.send_message(
@@ -577,7 +576,7 @@ class GameHandler:
                         await self._state_repo.save_room(room)
                         await self._ui.send_message(room.chat_id, "🏆 Время ФИНАЛА!")
                         await self._ui.send_message(room.chat_id, f"Тема: *{q.theme_name}*")
-                        kb = {"inline_keyboard": [[{"text": "🏁 Прием ставок", "callback_data": f"final_start_stakes:room_{room.chat_id}"}]]}
+                        kb = {"inline_keyboard": [[{"text": "🏁 Прием ставок", "callback_data": FinalStartStakesCallback(room_id=f"room_{room.chat_id}").pack()}]]}
                         await self._ui.send_message(room.chat_id, "Откройте прием ставок.", reply_markup=kb)
             else:
                 room.current_round_id = nxt["id"]
@@ -595,10 +594,10 @@ class GameHandler:
             res_text = await self._ui.render_results(room.chat_id, room)
             await self._state_repo.save_last_results(room.chat_id, res_text)
 
-    @callback("final_reveal:")
-    async def handle_final_reveal(self, chat_id: int, data: str, cb_id: str) -> None:
+    @callback(FinalRevealCallback)
+    async def handle_final_reveal(self, chat_id: int, data: FinalRevealCallback, cb_id: str) -> None:
         """Хост оглашает результаты финала."""
-        room_id = data.split(":")[1]
+        room_id = data.room_id
         room = await self._state_repo.get_room(room_id)
         if not room: return
         if room.phase == Phase.FINAL_ANSWER:
