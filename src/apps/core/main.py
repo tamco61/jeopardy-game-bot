@@ -108,7 +108,7 @@ async def main() -> None:
     ui = JeopardyUI(gateway, rabbit_publisher=rabbitmq)
 
     lobby_handler = LobbyHandler(
-        tg_client=gateway,
+        ui=ui,
         create_lobby_uc=create_lobby_uc,
         join_lobby_uc=join_lobby_uc,
         ready_uc=ready_uc,

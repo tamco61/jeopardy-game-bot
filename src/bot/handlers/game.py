@@ -209,27 +209,34 @@ class GameHandler:
             if room_now:
                 room_now.answering_player_telegram_id = user_tg_id
                 await self._state_repo.save_room(room_now)
+                await self._ui.render_answering_view(room_id, player_id, username)
 
                 q_text = room_now.current_question.text if room_now.current_question else "Вопрос"
+                
+                # Если нажато с Веба, берем ID сообщения из стейта комнаты
+                msg_id_to_edit = message_id if message_id > 0 else (room_now.last_buzzer_message_id or 0)
 
-                await self._ui.edit_message_text(
-                    chat_id=room_now.chat_id,
-                    message_id=message_id,
-                    text=f"🛑 Отвечает @{username}! Ждём ответа в личку...",
-                )
+                if msg_id_to_edit > 0:
+                    await self._ui.edit_message_text(
+                        chat_id=room_now.chat_id,
+                        message_id=msg_id_to_edit,
+                        text=f"🛑 Отвечает @{username}! Ждём ответа...",
+                        reply_markup=None # Убираем кнопку
+                    )
 
-                await self._ui.send_message(
-                    chat_id=user_tg_id,
-                    text=f"❓ Ты первый! Вопрос:\n\n*{q_text}*\n\nНапиши ответ прямо в это ЛС. У тебя 10 секунд!"
-                )
+                if user_tg_id:
+                    await self._ui.send_message(
+                        chat_id=user_tg_id,
+                        text=f"❓ Ты первый! Вопрос:\n\n*{q_text}*\n\nНапиши ответ прямо в это ЛС. У тебя 10 секунд!"
+                    )
+                    # Запоминаем активную комнату для игрока (для приема ответа в ЛС)
+                    await self._state_repo.set_active_room(user_tg_id, room_id)
+                
                 await self._ui.answer_callback_query(cb_id, text="Твой ответ!")
 
                 # Запуск таймера на ответ (10 сек)
                 tmr = asyncio.create_task(self._answer_timeout_task(room_id, player_id, username))
                 self._answer_timers[room_id] = tmr
-
-                # Запоминаем активную комнату для игрока (для приема ответа в ЛС)
-                await self._state_repo.set_active_room(user_tg_id, room_id)
         else:
             await self._ui.answer_callback_query(
                 callback_query_id=cb_id,
@@ -355,8 +362,7 @@ class GameHandler:
         room.activate_buzzer()
         await self._state_repo.save_room(room)
 
-        markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": PressButtonCallback(chat_id=chat_id).pack()}]]}
-        await self._ui.edit_message_text(chat_id, message_id, "Жмите кнопку!", reply_markup=markup)
+        await self._ui.render_buzzer(chat_id, room_id, message_id, "Жмите кнопку!")
 
         # Запуск общего таймера вопроса (10 сек)
         self._remaining_thinking_time[room_id] = 10.0

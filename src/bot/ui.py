@@ -163,6 +163,13 @@ class JeopardyUI:
         markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": PressButtonCallback(chat_id=chat_id).pack()}]]}
         await self._tg.edit_message_text(chat_id, message_id, text, reply_markup=markup)
 
+    async def render_answering_view(self, room_id: str, player_id: str, name: str) -> None:
+        """Уведомить веб-клиентов о начале ввода ответа."""
+        await self._broadcast_ui(room_id, "answering_started", {
+            "player_id": player_id,
+            "name": name
+        })
+
     async def render_results(self, chat_id: int, room: Room) -> str:
         """Показать финальные результаты игры и вернуть текст для архива."""
         scoreboard = self.format_scoreboard(room)
@@ -181,3 +188,19 @@ class JeopardyUI:
             "📦 **Выберите пакет вопросов для игры:**",
             reply_markup={"inline_keyboard": keyboard}
         )
+
+    async def render_lobby_update(self, chat_id: int, room: Room) -> None:
+        """Отрисовывает состояние лобби для всех платформ (TG + Web)."""
+        players_list = [f"@{p.username}" for p in room.players.values()]
+        text = f"👥 **Игроков в лобби: {len(players_list)}**\n" + ", ".join(players_list)
+        
+        # В Telegram
+        await self._tg.send_message(chat_id, text)
+        
+        # В Web
+        await self._broadcast_ui(str(room.room_id), "lobby_updated", {
+            "players": [
+                {"id": p.player_id, "name": p.display_name, "is_ready": p.is_ready}
+                for p in room.players.values()
+            ]
+        })

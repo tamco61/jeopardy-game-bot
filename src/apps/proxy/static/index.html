@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jeopardy Web - Своя Игра</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- Join Screen -->
+        <div id="join-screen" class="screen">
+            <div class="glass-card">
+                <h1>🎮 Jeopardy Web</h1>
+                <p class="subtitle">Выберите лобби для начала игры</p>
+                
+                <div class="form-group">
+                    <label for="player-name">Ваше имя</label>
+                    <input type="text" id="player-name" placeholder="Введите никнейм..." maxlength="15">
+                </div>
+
+                <div class="lobby-selector">
+                    <h3>Активные лобби</h3>
+                    <div id="lobby-list" class="lobby-list">
+                        <!-- Lobbies will be injected here -->
+                        <div class="loader">Ищем игры...</div>
+                    </div>
+                </div>
+
+                <button id="btn-join" class="btn-primary" disabled>Присоединиться</button>
+                <button id="btn-refresh" class="btn-secondary">Обновить список</button>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="screen hidden">
+            <header>
+                <div class="room-info">
+                    <span id="room-display">Room: ---</span>
+                    <span id="round-display">Раунд: -</span>
+                </div>
+                <div id="scoreboard" class="scoreboard">
+                    <!-- Scores injected here -->
+                </div>
+            </header>
+
+            <div id="lobby-view" class="lobby-view">
+                <div class="glass-card">
+                    <h2>Ожидание игроков</h2>
+                    <div id="player-list" class="player-list">
+                        <!-- Player list will be injected here -->
+                    </div>
+                    <div id="lobby-controls" class="lobby-controls">
+                        <button id="btn-ready" class="btn-primary">ГОТОВ</button>
+                        <button id="btn-notready" class="btn-secondary hidden">НЕ ГОТОВ</button>
+                        <button id="btn-leave" class="btn-danger">ВЫЙТИ</button>
+                    </div>
+                </div>
+            </div>
+
+            <main id="game-container" class="hidden">
+                <!-- Board or Question View -->
+                <div id="board-view" class="board-grid">
+                    <!-- Themes and questions -->
+                </div>
+
+                <div id="question-view" class="question-overlay hidden">
+                    <div id="q-points" class="mb-4">100</div>
+                    <div id="q-text" class="mb-4">Текст вопроса появится здесь...</div>
+                    <div class="d-flex flex-column align-items-center gap-3 w-100">
+                        <div id="buzzer-container" class="w-100 mt-4">
+                             <button id="btn-buzzer" class="buzzer-btn disabled">ЖМИТЕ, ЧТОБЫ ОТВЕТИТЬ!</button>
+                        </div>
+                        
+                        <!-- Поле ввода ответа (только для отвечающего) -->
+                        <div id="answer-input-container" class="hidden w-100 mt-2">
+                            <input type="text" id="answer-input" class="form-control mb-2" placeholder="Ваш ответ...">
+                            <button id="btn-submit-answer" class="btn btn-success w-100">ОТПРАВИТЬ ОТВЕТ</button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <div id="system-messages"></div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
