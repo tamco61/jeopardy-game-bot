@@ -142,7 +142,7 @@ class GameHandler:
             )
             res = await self._select_question.execute(dto)
 
-            await self._ui.show_question(room.chat_id, res.question_text, res.question_value)
+            await self._ui.show_question(room.chat_id, room_id, res.question_text, res.question_value)
 
             if res.phase == Phase.READING.value:
                 kb = {
@@ -315,7 +315,7 @@ class GameHandler:
                         chat_id=chat_id, message_id=message_id, text=f"Вердикт: {verdict_text}"
                     )
 
-                await self._ui.show_verdict(room.chat_id, verdict_text)
+                await self._ui.show_verdict(room.chat_id, room_id, verdict_text)
 
                 # Проверка завершения раунда — без дублирования вызовов
                 round_finished = False
@@ -334,7 +334,7 @@ class GameHandler:
                         await self._ui.send_message(room.chat_id, "❌ Неверно! Кто ещё?")
 
                     if room.last_buzzer_message_id:
-                        await self._ui.render_buzzer(room.chat_id, room.last_buzzer_message_id)
+                        await self._ui.render_buzzer(room.chat_id, room_id, room.last_buzzer_message_id)
 
                     # Возобновляем общий таймер вопроса
                     tmr = asyncio.create_task(self._question_timeout_task(room_id, room.chat_id))

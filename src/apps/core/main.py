@@ -105,7 +105,7 @@ async def main() -> None:
     close_final_stake_uc = CloseFinalStakeUseCase(state_repo)
 
     # Handlers & UI (внедряем RPC Gateway вместо TelegramHttpClient)
-    ui = JeopardyUI(gateway)
+    ui = JeopardyUI(gateway, rabbit_publisher=rabbitmq)
 
     lobby_handler = LobbyHandler(
         tg_client=gateway,

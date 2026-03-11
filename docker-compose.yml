@@ -63,5 +63,15 @@ services:
     env_file: .env
     restart: unless-stopped
 
+  proxy:
+    build: .
+    command: ["uv", "run", "python", "-m", "src.apps.proxy.main"]
+    depends_on:
+      - rabbitmq
+    ports:
+      - "8000:8000"
+    env_file: .env
+    restart: unless-stopped
+
 volumes:
   pgdata:

@@ -12,3 +12,9 @@ class IncomingTelegramEvent(BaseModel):
     """Событие от Telegram (публикуется Poller, слушается Core)."""
     update_id: int
     data: Dict[str, Any] # Полный JSON update от Telegram
+
+class WebUIUpdate(BaseModel):
+    """Обновление состояния UI для Web-клиентов."""
+    room_id: str
+    event_type: str # 'board_updated', 'buzzer_captured', 'question_opened', etc.
+    payload: Dict[str, Any]
