@@ -59,6 +59,10 @@ class JoinLobbyUseCase:
         if room.phase != Phase.LOBBY:
             raise DomainError("Нельзя присоединиться к уже начатой игре.")
 
+        # Игрок уже в лобби — не сбрасываем его ready-статус и очки
+        if dto.player_id in room.players:
+            return
+
         player = Player(
             player_id=dto.player_id,
             telegram_id=dto.telegram_id,

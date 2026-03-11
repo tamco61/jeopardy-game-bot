@@ -6,7 +6,7 @@ from src.bot.callback import (
     SkipRoundCallback,
     PressButtonCallback,
 )
-from src.domain.room import Room
+from src.domain.room import Phase, Room
 from src.infrastructure.rabbit import RabbitMQPublisher
 from src.shared.interfaces import MessageGateway
 from src.shared.logger import get_logger
@@ -59,6 +59,15 @@ class JeopardyUI:
         scoreboard = self.format_scoreboard(room)
         text = f"🎮 **Табло: {room.current_round_name} ({room.round_number}/{room.total_rounds})**" + scoreboard
 
+        # Бродкастим состояние табло для веба — всегда, до отправки в TG
+        await self._broadcast_ui(str(room.room_id), "board_updated", {
+            "round_name": room.current_round_name,
+            "round_number": room.round_number,
+            "board": board_data,
+            "closed_questions": list(room.closed_questions),
+            "scores": {p.player_id: {"name": p.display_name, "score": p.score} for p in room.players.values()}
+        })
+
         # Пытаемся редактировать предыдущее сообщение, чтобы не спамить
         if room.last_board_message_id:
             try:
@@ -76,14 +85,6 @@ class JeopardyUI:
             text,
             reply_markup={"inline_keyboard": keyboard},
         )
-        # Бродкастим состояние табло для веба
-        await self._broadcast_ui(str(room.room_id), "board_updated", {
-            "round_name": room.current_round_name,
-            "round_number": room.round_number,
-            "board": board_data,
-            "closed_questions": list(room.closed_questions),
-            "scores": {p.player_id: {"name": p.display_name, "score": p.score} for p in room.players.values()}
-        })
         return sent_msg
 
     def format_scoreboard(self, room: Room) -> str:
@@ -175,7 +176,63 @@ class JeopardyUI:
         scoreboard = self.format_scoreboard(room)
         text = "🏆 **ИГРА ОКОНЧЕНА!** 🏆\n" + scoreboard
         await self._tg.send_message(chat_id, text)
+        await self._broadcast_ui(str(room.room_id), "game_finished", {
+            "scores": [
+                {"name": p.display_name, "score": p.score}
+                for p in sorted(room.players.values(), key=lambda p: p.score, reverse=True)
+            ]
+        })
         return text
+
+    async def send_game_snapshot(self, room: Room, board_data: list[dict] | None = None) -> None:
+        """Отправить снимок текущего состояния игры в web (для переподключившихся клиентов)."""
+        room_id = str(room.room_id)
+
+        if room.phase == Phase.LOBBY:
+            await self._broadcast_ui(room_id, "lobby_updated", {
+                "players": [
+                    {"id": p.player_id, "name": p.display_name, "is_ready": p.is_ready}
+                    for p in room.players.values()
+                ]
+            })
+        elif room.phase == Phase.BOARD_VIEW and board_data:
+            await self._broadcast_ui(room_id, "board_updated", {
+                "round_name": room.current_round_name,
+                "round_number": room.round_number,
+                "board": board_data,
+                "closed_questions": list(room.closed_questions),
+                "scores": {
+                    p.player_id: {"name": p.display_name, "score": p.score}
+                    for p in room.players.values()
+                }
+            })
+        elif room.phase in (Phase.READING, Phase.WAITING_FOR_PUSH):
+            if room.current_question:
+                await self._broadcast_ui(room_id, "question_opened", {
+                    "text": room.current_question.text,
+                    "value": room.current_question.value,
+                })
+            if room.phase == Phase.WAITING_FOR_PUSH:
+                await self._broadcast_ui(room_id, "buzzer_activated", {})
+        elif room.phase == Phase.ANSWERING:
+            if room.current_question:
+                await self._broadcast_ui(room_id, "question_opened", {
+                    "text": room.current_question.text,
+                    "value": room.current_question.value,
+                })
+            if room.answering_player_id:
+                player = room.players.get(room.answering_player_id)
+                await self._broadcast_ui(room_id, "answering_started", {
+                    "player_id": room.answering_player_id,
+                    "name": player.display_name if player else room.answering_player_id,
+                })
+        elif room.phase == Phase.RESULTS:
+            await self._broadcast_ui(room_id, "game_finished", {
+                "scores": [
+                    {"name": p.display_name, "score": p.score}
+                    for p in sorted(room.players.values(), key=lambda p: p.score, reverse=True)
+                ]
+            })
 
     async def render_pack_selection(self, chat_id: int, packs: list[dict], room_id: str) -> None:
         """Отрисовывает меню выбора пакета вопросов."""

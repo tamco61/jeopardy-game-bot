@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jeopardy — Панель администратора</title>
+    <link rel="stylesheet" href="admin.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="layout">
+
+    <!-- САЙДБАР -->
+    <aside class="sidebar">
+        <div class="sidebar-logo">
+            <span class="logo-icon">🎮</span>
+            <span class="logo-text">Jeopardy<br><small>Admin</small></span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <button class="nav-item active" data-section="dashboard">
+                <span class="nav-icon">📊</span>
+                <span>Дашборд</span>
+            </button>
+            <button class="nav-item" data-section="rooms">
+                <span class="nav-icon">🎮</span>
+                <span>Комнаты</span>
+            </button>
+            <button class="nav-item" data-section="packages">
+                <span class="nav-icon">📦</span>
+                <span>Пакеты</span>
+            </button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="connection-status" id="conn-status">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-text">Проверка...</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ОСНОВНАЯ ОБЛАСТЬ -->
+    <main class="main">
+
+        <!-- Топбар -->
+        <header class="topbar">
+            <h1 class="page-title" id="page-title">Дашборд</h1>
+            <div class="topbar-actions">
+                <button class="btn-outline" id="btn-refresh-all" title="Обновить">↻ Обновить</button>
+            </div>
+        </header>
+
+        <!-- ══ ДАШБОРД ══ -->
+        <section class="section active" id="dashboard">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">🎮</div>
+                    <div class="stat-body">
+                        <div class="stat-label">Активных комнат</div>
+                        <div class="stat-value" id="stat-rooms">—</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">👥</div>
+                    <div class="stat-body">
+                        <div class="stat-label">Игроков в сети</div>
+                        <div class="stat-value" id="stat-players">—</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📦</div>
+                    <div class="stat-body">
+                        <div class="stat-label">Пакетов вопросов</div>
+                        <div class="stat-value" id="stat-packages">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Быстрый список активных комнат -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h2 class="card-title">Активные сессии</h2>
+                    <button class="btn-outline btn-sm" onclick="loadRooms(); switchSection('rooms')">Все комнаты →</button>
+                </div>
+                <div class="table-wrap">
+                    <table id="dashboard-rooms-table">
+                        <thead>
+                            <tr>
+                                <th>Room ID</th>
+                                <th>Фаза</th>
+                                <th>Игроки</th>
+                                <th>Раунд</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboard-rooms-body">
+                            <tr><td colspan="4" class="loading-row">Загрузка...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ══ КОМНАТЫ ══ -->
+        <section class="section" id="rooms">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Игровые комнаты</h2>
+                    <button class="btn-outline btn-sm" onclick="loadRooms()">↻ Обновить</button>
+                </div>
+                <div class="table-wrap">
+                    <table id="rooms-table">
+                        <thead>
+                            <tr>
+                                <th>Room ID</th>
+                                <th>Chat ID</th>
+                                <th>Фаза</th>
+                                <th>Раунд</th>
+                                <th>Игроки</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rooms-body">
+                            <tr><td colspan="6" class="loading-row">Загрузка...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ══ ПАКЕТЫ ══ -->
+        <section class="section" id="packages">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Пакеты вопросов</h2>
+                    <button class="btn-outline btn-sm" onclick="loadPackages()">↻ Обновить</button>
+                </div>
+                <div class="table-wrap">
+                    <table id="packages-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Название</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="packages-body">
+                            <tr><td colspan="3" class="loading-row">Загрузка...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<!-- Toast контейнер -->
+<div id="toast-container"></div>
+
+<!-- Модальное окно подтверждения -->
+<div id="modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal">
+        <h3 id="modal-title">Подтверждение</h3>
+        <p id="modal-body">Вы уверены?</p>
+        <div class="modal-actions">
+            <button class="btn-danger" id="modal-confirm">Подтвердить</button>
+            <button class="btn-outline" id="modal-cancel">Отмена</button>
+        </div>
+    </div>
+</div>
+
+<script src="admin.js"></script>
+</body>
+</html>

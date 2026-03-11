@@ -350,6 +350,20 @@ class GameHandler:
             except (SQLAlchemyError, aioredis.RedisError) as e:
                 logger.error("Ошибка при вынесении вердикта: %s", e)
 
+    @command("/sync")
+    async def handle_sync(self, room_id: str) -> None:
+        """Синхронизация состояния для переподключившегося веб-клиента."""
+        room = await self._state_repo.get_room(room_id)
+        if not room:
+            return
+
+        board_data = None
+        if room.phase == Phase.BOARD_VIEW and room.current_round_id:
+            board_data = await self._theme_repo.get_board_for_round(room.current_round_id)
+
+        await self._ui.send_game_snapshot(room, board_data)
+        logger.info("🔄 Снимок состояния отправлен для комнаты %s", room_id)
+
     async def render_board(self, chat_id: int, room: Room) -> None:
         if not room.current_round_id: return
         board_data = await self._theme_repo.get_board_for_round(room.current_round_id)
@@ -594,11 +608,11 @@ class GameHandler:
                 await self._ui.send_message(room.chat_id, f"🔔 Раунд завершен! Переходим к: {nxt['name']}")
                 await self.render_board(room.chat_id, room)
         else:
-            # Больше раундов нет
+            # Больше раундов нет — сохраняем результаты и удаляем комнату
             room.phase = Phase.RESULTS
-            await self._state_repo.save_room(room)
             res_text = await self._ui.render_results(room.chat_id, room)
             await self._state_repo.save_last_results(room.chat_id, res_text)
+            await self._state_repo.delete_room(room.room_id)
 
     @callback(FinalRevealCallback)
     async def handle_final_reveal(self, chat_id: int, data: FinalRevealCallback, cb_id: str) -> None:
@@ -625,5 +639,6 @@ class GameHandler:
             await self._ui.send_message(room.chat_id, text)
             res_text = await self._ui.render_results(room.chat_id, room)
             await self._state_repo.save_last_results(room.chat_id, res_text)
+            await self._state_repo.delete_room(room_id)
 
         await self._ui.answer_callback_query(cb_id)

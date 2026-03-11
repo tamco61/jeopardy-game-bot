@@ -1,6 +1,10 @@
+/* ══════════════════════════════════════════
+   СОСТОЯНИЕ
+══════════════════════════════════════════ */
 let socket = null;
 let currentRoomId = null;
 let playerName = "";
+let gameFinished = false;
 let gameState = {
     phase: "LOBBY",
     board: [],
@@ -8,334 +12,436 @@ let gameState = {
     scores: {}
 };
 
-// UI Elements
-const joinScreen = document.getElementById('join-screen');
-const gameScreen = document.getElementById('game-screen');
-const lobbyList = document.getElementById('lobby-list');
-const btnJoin = document.getElementById('btn-join');
-const btnRefresh = document.getElementById('btn-refresh');
-const playerNameInput = document.getElementById('player-name');
-const boardView = document.getElementById('board-view');
-const questionView = document.getElementById('question-view');
-const btnBuzzer = document.getElementById('btn-buzzer');
-const lobbyView = document.getElementById('lobby-view');
-const playerList = document.getElementById('player-list');
-const btnReady = document.getElementById('btn-ready');
-const btnNotReady = document.getElementById('btn-notready');
-const btnLeave = document.getElementById('btn-leave');
-const gameContainer = document.getElementById('game-container');
-const answerInputContainer = document.getElementById('answer-input-container');
-const answerInput = document.getElementById('answer-input');
-const btnSubmitAnswer = document.getElementById('btn-submit-answer');
-const answerStatus = document.getElementById('answer-status');
-const qText = document.getElementById('q-text');
-const qPoints = document.getElementById('q-points');
+/* ══════════════════════════════════════════
+   DOM-ЭЛЕМЕНТЫ
+══════════════════════════════════════════ */
+const joinScreen            = document.getElementById("join-screen");
+const gameScreen            = document.getElementById("game-screen");
+const lobbyList             = document.getElementById("lobby-list");
+const btnJoin               = document.getElementById("btn-join");
+const btnRefresh            = document.getElementById("btn-refresh");
+const playerNameInput       = document.getElementById("player-name");
+const roomDisplay           = document.getElementById("room-display");
+const roundDisplay          = document.getElementById("round-display");
+const scoreboard            = document.getElementById("scoreboard");
+const lobbyView             = document.getElementById("lobby-view");
+const playerList            = document.getElementById("player-list");
+const btnReady              = document.getElementById("btn-ready");
+const btnNotReady           = document.getElementById("btn-notready");
+const btnLeave              = document.getElementById("btn-leave");
+const gameContainer         = document.getElementById("game-container");
+const boardView             = document.getElementById("board-view");
+const questionView          = document.getElementById("question-view");
+const qText                 = document.getElementById("q-text");
+const qValue                = document.getElementById("q-value");
+const buzzerArea            = document.getElementById("buzzer-area");
+const btnBuzzer             = document.getElementById("btn-buzzer");
+const answeringStatus       = document.getElementById("answering-status");
+const answeringName         = document.getElementById("answering-name");
+const answerInputContainer  = document.getElementById("answer-input-container");
+const answerInput           = document.getElementById("answer-input");
+const btnSubmitAnswer       = document.getElementById("btn-submit-answer");
+const answerStatus          = document.getElementById("answer-status");
+const resultsView           = document.getElementById("results-view");
+const resultsList           = document.getElementById("results-list");
+const btnPlayAgain          = document.getElementById("btn-play-again");
+const toastContainer        = document.getElementById("toast-container");
 
-// --- Lobby Logic ---
+/* ══════════════════════════════════════════
+   TOAST-УВЕДОМЛЕНИЯ
+══════════════════════════════════════════ */
+function showToast(message, type = "info", duration = 3000) {
+    const toast = document.createElement("div");
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+    setTimeout(() => toast.remove(), duration);
+}
 
+/* ══════════════════════════════════════════
+   ПЕРЕКЛЮЧЕНИЕ ФАЗЫ
+══════════════════════════════════════════ */
+function setGamePhase(phase) {
+    gameState.phase = phase;
+    if (phase === "LOBBY") {
+        lobbyView.classList.remove("hidden");
+        gameContainer.classList.add("hidden");
+    } else {
+        lobbyView.classList.add("hidden");
+        gameContainer.classList.remove("hidden");
+    }
+}
+
+/* ══════════════════════════════════════════
+   ЛОББИ: ЗАГРУЗКА СПИСКА КОМНАТ
+══════════════════════════════════════════ */
 async function fetchLobbies() {
-    lobbyList.innerHTML = '<div class="loader">Ищем игры...</div>';
+    lobbyList.innerHTML = `
+        <div class="loader-row">
+            <div class="spinner"></div>
+            <span>Поиск игр...</span>
+        </div>`;
+
     try {
-        const response = await fetch('/rooms');
-        const rooms = await response.json();
-        
-        lobbyList.innerHTML = '';
+        const res = await fetch("/rooms");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const rooms = await res.json();
+
+        lobbyList.innerHTML = "";
         if (rooms.length === 0) {
-            lobbyList.innerHTML = '<div class="p-3">Активных игр не найдено. Создайте игру в Телеграме!</div>';
+            lobbyList.innerHTML = `<div class="empty-row">Нет активных лобби. Создайте игру в Telegram!</div>`;
             return;
         }
 
         rooms.forEach(room => {
-            const item = document.createElement('div');
-            item.className = 'lobby-item';
+            const item = document.createElement("div");
+            item.className = "lobby-item";
+            const phase = room.phase || "—";
             item.innerHTML = `
-                <span class="lobby-id">Room: ${room.room_id}</span>
-                <span class="lobby-players">👥 ${room.player_count} | Раунд: ${room.current_round}</span>
+                <span class="lobby-room-id">${room.room_id}</span>
+                <span class="lobby-meta">👥 ${room.player_count} · ${phase}</span>
             `;
-            item.onclick = () => selectLobby(room.room_id, item);
+            item.addEventListener("click", () => selectLobby(room.room_id, item));
             lobbyList.appendChild(item);
         });
     } catch (e) {
-        lobbyList.innerHTML = '<div class="p-3 text-danger">Ошибка загрузки списка лобби</div>';
+        lobbyList.innerHTML = `<div class="empty-row" style="color:var(--danger)">Ошибка загрузки списка комнат</div>`;
     }
 }
 
 function selectLobby(roomId, element) {
     currentRoomId = roomId;
-    document.querySelectorAll('.lobby-item').forEach(el => el.classList.remove('selected'));
-    element.classList.add('selected');
+    document.querySelectorAll(".lobby-item").forEach(el => el.classList.remove("selected"));
+    element.classList.add("selected");
     validateJoin();
 }
 
 function validateJoin() {
     playerName = playerNameInput.value.trim();
-    btnJoin.disabled = !(currentRoomId && playerName);
+    btnJoin.disabled = !(currentRoomId && playerName.length > 0);
 }
 
-playerNameInput.addEventListener('input', validateJoin);
-btnRefresh.onclick = fetchLobbies;
+playerNameInput.addEventListener("input", validateJoin);
+btnRefresh.addEventListener("click", fetchLobbies);
 
-btnJoin.onclick = () => {
+btnJoin.addEventListener("click", () => {
     if (currentRoomId && playerName) {
         connectToGame(currentRoomId, playerName);
     }
-};
+});
 
-// --- Game Socket Logic ---
-
+/* ══════════════════════════════════════════
+   WEBSOCKET — ПОДКЛЮЧЕНИЕ К ИГРЕ
+══════════════════════════════════════════ */
 function connectToGame(roomId, name) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/${roomId}/${encodeURIComponent(name)}`;
-    
-    socket = new WebSocket(wsUrl);
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${proto}//${location.host}/ws/${roomId}/${encodeURIComponent(name)}`;
 
-    socket.onopen = () => {
-        joinScreen.classList.add('hidden');
-        gameScreen.classList.remove('hidden');
-        document.getElementById('room-display').innerText = `Room: ${roomId}`;
-    };
+    socket = new WebSocket(url);
 
-    socket.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        handleServerMessage(msg);
-    };
+    socket.addEventListener("open", () => {
+        joinScreen.classList.add("hidden");
+        gameScreen.classList.remove("hidden");
+        roomDisplay.textContent = `Room: ${roomId}`;
+        showToast("Подключено к игре!", "success");
+    });
 
-    socket.onclose = () => {
-        alert("Соединение потеряно. Вернитесь в меню.");
-        location.reload();
-    };
-}
-
-function handleServerMessage(msg) {
-    const { event_type, payload } = msg;
-
-    switch (event_type) {
-        case 'board_updated':
-            updateBoard(payload);
-            break;
-        case 'question_opened':
-            showQuestion(payload);
-            break;
-        case 'buzzer_activated':
-            enableBuzzer();
-            break;
-        case 'answering_started':
-            handleAnsweringStarted(payload);
-            break;
-        case 'verdict_announced':
-            handleVerdict(payload);
-            break;
-        case 'lobby_updated':
-            updateLobby(payload);
-            break;
-    }
-
-    // Toggle views based on phase
-    if (gameState.phase === "LOBBY") {
-        lobbyView.classList.remove('hidden');
-        gameContainer.classList.add('hidden');
-    } else {
-        lobbyView.classList.add('hidden');
-        gameContainer.classList.remove('hidden');
-    }
-}
-
-// --- UI Updates ---
-
-function updateLobby(data) {
-    gameState.phase = "LOBBY";
-    playerList.innerHTML = '';
-    
-    data.players.forEach(p => {
-        const item = document.createElement('div');
-        item.className = 'player-item';
-        item.innerHTML = `
-            <span class="player-name">${p.name}</span>
-            <span class="ready-status ${p.is_ready ? 'status-ready' : 'status-waiting'}">
-                ${p.is_ready ? 'ГОТОВ' : 'ОЖИДАНИЕ'}
-            </span>
-        `;
-        playerList.appendChild(item);
-
-        // Update own ready buttons
-        if (p.id === playerName) {
-            if (p.is_ready) {
-                btnReady.classList.add('hidden');
-                btnNotReady.classList.remove('hidden');
-            } else {
-                btnReady.classList.remove('hidden');
-                btnNotReady.classList.add('hidden');
-            }
+    socket.addEventListener("message", ({ data }) => {
+        try {
+            handleServerMessage(JSON.parse(data));
+        } catch (e) {
+            console.error("Ошибка разбора сообщения:", e);
         }
     });
 
-    // Mirror to scoreboard for top bar consistency
-    const scores = {};
-    data.players.forEach(p => {
-        scores[p.id] = { name: p.name, score: p.score || 0 };
+    socket.addEventListener("close", () => {
+        if (gameFinished) return; // Результаты уже показаны — не перезагружаем
+        showToast("Соединение потеряно. Страница перезагрузится...", "error", 3000);
+        setTimeout(() => location.reload(), 3000);
     });
-    updateScoreboard(scores);
+
+    socket.addEventListener("error", () => {
+        showToast("Ошибка WebSocket-соединения", "error");
+    });
 }
 
-function updateBoard(data) {
-    gameState.phase = "GAME"; // If we receive board, we are in game
-    gameState.board = data.board;
-    gameState.closedQuestions = data.closed_questions || [];
+function sendEvent(obj) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(obj));
+        return true;
+    }
+    return false;
+}
+
+/* ══════════════════════════════════════════
+   ОБРАБОТКА СОБЫТИЙ ОТ СЕРВЕРА
+══════════════════════════════════════════ */
+function handleServerMessage({ event_type, payload }) {
+    switch (event_type) {
+        case "lobby_updated":
+            renderLobbyUpdate(payload);
+            break;
+        case "board_updated":
+            renderBoardUpdate(payload);
+            break;
+        case "question_opened":
+            showQuestion(payload);
+            break;
+        case "buzzer_activated":
+            activateBuzzer();
+            break;
+        case "answering_started":
+            showAnsweringState(payload);
+            break;
+        case "verdict_announced":
+            showVerdict(payload);
+            break;
+        case "game_finished":
+            showResults(payload);
+            break;
+        default:
+            console.log("Неизвестное событие:", event_type, payload);
+    }
+}
+
+/* ══════════════════════════════════════════
+   ЛОББИ (ВНУТРИ ИГРЫ)
+══════════════════════════════════════════ */
+function renderLobbyUpdate({ players }) {
+    setGamePhase("LOBBY");
+    playerList.innerHTML = "";
+
+    players.forEach(p => {
+        const item = document.createElement("div");
+        item.className = "player-item";
+        const isMe = p.id === playerName;
+        item.innerHTML = `
+            <span class="player-name">${p.name}${isMe ? " (вы)" : ""}</span>
+            <span class="status-badge ${p.is_ready ? "ready" : "waiting"}">
+                ${p.is_ready ? "Готов" : "Ожидание"}
+            </span>`;
+        playerList.appendChild(item);
+
+        if (isMe) {
+            btnReady.classList.toggle("hidden", p.is_ready);
+            btnNotReady.classList.toggle("hidden", !p.is_ready);
+        }
+    });
+
+    updateScoreboard(
+        Object.fromEntries(players.map(p => [p.id, { name: p.name, score: p.score || 0 }]))
+    );
+}
+
+/* ══════════════════════════════════════════
+   ТАБЛО (ДОСКА ВОПРОСОВ)
+══════════════════════════════════════════ */
+function renderBoardUpdate({ board, closed_questions, scores, round_name, round_number }) {
+    setGamePhase("GAME");
+    gameState.board = board;
+    gameState.closedQuestions = closed_questions || [];
+
+    roundDisplay.textContent = round_name ? `${round_name} (${round_number})` : `Раунд ${round_number}`;
+    updateScoreboard(scores);
     renderBoard();
-    updateScoreboard(data.scores);
-    document.getElementById('round-display').innerText = `Раунд: ${data.round_number} (${data.round_name})`;
+    questionView.classList.add("hidden");
+    resultsView.classList.add("hidden");
 }
 
 function renderBoard() {
-    boardView.innerHTML = '';
+    boardView.innerHTML = "";
     if (!gameState.board || gameState.board.length === 0) return;
 
-    // Генерируем сетку
-    const themesCount = gameState.board.length;
-    const questionsCount = gameState.board[0].questions.length;
+    gameState.board.forEach(theme => {
+        const row = document.createElement("div");
+        row.className = "board-row";
 
-    for (let i = 0; i < themesCount; i++) {
-        const row = document.createElement('div');
-        row.className = 'board-row';
-        
-        // Клетка темы
-        const themeCell = document.createElement('div');
-        themeCell.className = 'cell theme-cell';
-        themeCell.innerText = gameState.board[i].theme;
+        // Название темы
+        const themeCell = document.createElement("div");
+        themeCell.className = "cell theme-cell";
+        themeCell.textContent = theme.theme;
         row.appendChild(themeCell);
 
-        // Клетки вопросов
-        gameState.board[i].questions.forEach(q => {
-            const qCell = document.createElement('div');
+        // Вопросы
+        theme.questions.forEach(q => {
+            const cell = document.createElement("div");
             const isClosed = gameState.closedQuestions.includes(q.id);
-            qCell.className = `cell ${isClosed ? 'closed' : ''}`;
-            qCell.innerText = isClosed ? '×' : q.value;
-            
+            cell.className = "cell" + (isClosed ? " closed" : " q-cell");
+            cell.textContent = isClosed ? "✕" : q.value;
             if (!isClosed) {
-                qCell.onclick = () => selectQuestion(q.id);
+                cell.addEventListener("click", () => selectQuestion(q.id));
             }
-            row.appendChild(qCell);
+            row.appendChild(cell);
         });
+
         boardView.appendChild(row);
-    }
-    questionView.classList.add('hidden');
+    });
 }
 
-function showQuestion(data) {
-    document.getElementById('q-text').innerText = data.text;
-    document.getElementById('q-points').innerText = data.value;
-    questionView.classList.remove('hidden');
-    btnBuzzer.classList.add('disabled'); // Ждем активации пищалки
+/* ══════════════════════════════════════════
+   ВОПРОС
+══════════════════════════════════════════ */
+function showQuestion({ text, value }) {
+    qText.textContent = text;
+    qValue.textContent = `${value} очков`;
+
+    // Сброс состояния
+    setBuzzerState("disabled");
+    answeringStatus.classList.add("hidden");
+    answerInputContainer.classList.add("hidden");
+    answerStatus.classList.add("hidden");
+    answerInput.value = "";
+
+    questionView.classList.remove("hidden");
 }
 
-function enableBuzzer() {
-    btnBuzzer.classList.remove('disabled');
+function activateBuzzer() {
+    // Показываем question-view если он был скрыт (например после неверного ответа)
+    questionView.classList.remove("hidden");
+    // Сбрасываем состояние предыдущего ответа
+    answerInputContainer.classList.add("hidden");
+    answerStatus.classList.add("hidden");
+    answeringStatus.classList.add("hidden");
+    answerInput.value = "";
+    setBuzzerState("active");
 }
 
-function closeQuestion() {
-    questionView.classList.add('hidden');
-    answerInputContainer.classList.add('hidden');
-    answerStatus.classList.add('hidden');
-    answerInput.value = '';
-}
+function showAnsweringState({ player_id, name }) {
+    setBuzzerState("disabled");
 
-function handleAnsweringStarted(data) {
-    btnBuzzer.classList.add('disabled');
-    btnBuzzer.classList.remove('loading');
-    if (data.player_id === playerName) {
-        answerInputContainer.classList.remove('hidden');
-        answerStatus.classList.add('hidden');
+    if (player_id === playerName) {
+        // Это мы отвечаем
+        answerInputContainer.classList.remove("hidden");
+        answeringStatus.classList.add("hidden");
+        answerStatus.classList.add("hidden");
         answerInput.focus();
+        showToast("Ваша очередь отвечать!", "success");
     } else {
-        answerInputContainer.classList.add('hidden');
-        answerStatus.innerText = `Отвечает ${data.name}...`;
-        answerStatus.classList.remove('hidden');
+        // Другой игрок
+        answerInputContainer.classList.add("hidden");
+        answeringName.textContent = `${name} отвечает...`;
+        answeringStatus.classList.remove("hidden");
     }
 }
 
-function handleVerdict(data) {
-    // Show verdict briefly or just close
-    answerStatus.innerText = `Вердикт: ${data.verdict}`;
-    setTimeout(closeQuestion, 2000);
+function showVerdict({ verdict }) {
+    answerInputContainer.classList.add("hidden");
+    answeringStatus.classList.add("hidden");
+    answerStatus.textContent = verdict;
+    answerStatus.classList.remove("hidden");
+    setBuzzerState("disabled");
+
+    showToast(`Вердикт: ${verdict}`, "info");
+    // Не скрываем question-view здесь.
+    // Если ответ верный → придёт board_updated и renderBoardUpdate скроет question-view.
+    // Если ответ неверный → придёт buzzer_activated и activateBuzzer восстановит buzzer.
+}
+
+function setBuzzerState(state) {
+    btnBuzzer.classList.remove("disabled", "loading");
+    if (state === "disabled") btnBuzzer.classList.add("disabled");
+    if (state === "loading")  btnBuzzer.classList.add("loading");
+}
+
+/* ══════════════════════════════════════════
+   РЕЗУЛЬТАТЫ
+══════════════════════════════════════════ */
+const PLACE_MEDALS = ["🥇", "🥈", "🥉"];
+
+function showResults({ scores }) {
+    gameFinished = true;
+    // Скрываем всё игровое
+    questionView.classList.add("hidden");
+    lobbyView.classList.add("hidden");
+    gameContainer.classList.remove("hidden");
+
+    resultsList.innerHTML = "";
+    scores.forEach(({ name, score }, i) => {
+        const row = document.createElement("div");
+        row.className = "result-row";
+        row.innerHTML = `
+            <span class="result-place">${PLACE_MEDALS[i] || `${i + 1}.`}</span>
+            <span class="result-name">${name}</span>
+            <span class="result-score">${score} очков</span>
+        `;
+        resultsList.appendChild(row);
+    });
+
+    resultsView.classList.remove("hidden");
+    showToast("Игра завершена! Смотрите результаты.", "success", 5000);
+}
+
+btnPlayAgain.addEventListener("click", () => location.reload());
+
+/* ══════════════════════════════════════════
+   СЧЁТ
+══════════════════════════════════════════ */
+function updateScoreboard(scores) {
+    scoreboard.innerHTML = "";
+    Object.values(scores).forEach(({ name, score }) => {
+        const chip = document.createElement("div");
+        chip.className = "score-chip";
+        chip.textContent = `${name}: ${score}`;
+        scoreboard.appendChild(chip);
+    });
+}
+
+/* ══════════════════════════════════════════
+   ДЕЙСТВИЯ ИГРОКА
+══════════════════════════════════════════ */
+function selectQuestion(questionId) {
+    sendEvent({ type: "select_question", question_id: questionId, username: playerName });
 }
 
 function submitAnswer() {
     const text = answerInput.value.trim();
-    if (text && socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-            type: 'submit_answer',
-            text: text,
-            username: playerName
-        }));
-        answerInputContainer.classList.add('hidden');
-        answerStatus.innerText = "Ответ отправлен. Ждем вердикт...";
-        answerStatus.classList.remove('hidden');
+    if (!text) return;
+    if (sendEvent({ type: "submit_answer", text, username: playerName })) {
+        answerInputContainer.classList.add("hidden");
+        answerStatus.textContent = "Ответ отправлен. Ждём вердикт...";
+        answerStatus.classList.remove("hidden");
     }
 }
 
-function updateScoreboard(scores) {
-    const container = document.getElementById('scoreboard');
-    container.innerHTML = '';
-    for (const id in scores) {
-        const p = scores[id];
-        const div = document.createElement('div');
-        div.className = 'player-score';
-        div.innerText = `${p.name}: ${p.score}`;
-        container.appendChild(div);
+/* ══════════════════════════════════════════
+   КНОПКИ
+══════════════════════════════════════════ */
+btnBuzzer.addEventListener("click", () => {
+    if (btnBuzzer.classList.contains("disabled") || btnBuzzer.classList.contains("loading")) return;
+    setBuzzerState("loading");
+    sendEvent({ type: "buzzer_press", room_id: currentRoomId, username: playerName });
+});
+
+btnReady.addEventListener("click", () => {
+    sendEvent({ type: "command", command: "/ready", username: playerName });
+});
+
+btnNotReady.addEventListener("click", () => {
+    sendEvent({ type: "command", command: "/notready", username: playerName });
+});
+
+btnLeave.addEventListener("click", () => {
+    if (confirm("Покинуть лобби?")) {
+        sendEvent({ type: "command", command: "/leave", username: playerName });
+        setTimeout(() => location.reload(), 500);
     }
-}
+});
 
-// --- Actions ---
+btnSubmitAnswer.addEventListener("click", submitAnswer);
 
-function selectQuestion(questionId) {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-            type: 'select_question',
-            question_id: questionId,
-            username: playerName
-        }));
-    }
-}
+answerInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitAnswer();
+});
 
-btnBuzzer.onclick = () => {
-    if (btnBuzzer.classList.contains('disabled') || btnBuzzer.classList.contains('loading')) return;
-    
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        btnBuzzer.classList.add('loading');
-        socket.send(JSON.stringify({ 
-            type: 'buzzer_press',
-            room_id: currentRoomId,
-            username: playerName
-        }));
-    }
-};
-
-btnReady.onclick = () => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'command', command: '/ready', username: playerName }));
-    }
-};
-
-btnNotReady.onclick = () => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'command', command: '/notready', username: playerName }));
-    }
-};
-
-btnLeave.onclick = () => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        if (confirm("Выйти из лобби?")) {
-            socket.send(JSON.stringify({ type: 'command', command: '/leave', username: playerName }));
-            location.reload();
-        }
-    }
-};
-
-btnSubmitAnswer.onclick = submitAnswer;
-answerInput.onkeydown = (e) => {
-    if (e.key === 'Enter') submitAnswer();
-};
-
-// Start
+/* ══════════════════════════════════════════
+   ИНИЦИАЛИЗАЦИЯ
+══════════════════════════════════════════ */
 fetchLobbies();
-setInterval(fetchLobbies, 5000); // Обновляем список каждые 5 сек
+// Обновляем список лобби каждые 5 секунд пока на экране входа
+const lobbyInterval = setInterval(() => {
+    if (!gameScreen.classList.contains("hidden")) {
+        clearInterval(lobbyInterval);
+        return;
+    }
+    fetchLobbies();
+}, 5000);

@@ -114,7 +114,7 @@ async def health():
 
 @app.get("/rooms")
 async def list_rooms():
-    """Получить список всех активных комнат."""
+    """Получить список активных комнат (исключая завершённые игры)."""
     if not state_repo:
         return []
     rooms = await state_repo.get_all_rooms()
@@ -127,33 +127,36 @@ async def list_rooms():
             "current_round": r.round_number
         }
         for r in rooms
+        if r.phase != "results"
     ]
 
 @app.websocket("/ws/{room_id}/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str):
     await manager.connect(websocket, room_id)
     
-    # Автоматически отправляем событие /join в ядро
+    # Определяем: новый игрок (/join) или переподключение (/sync)
     if state_repo and rabbit_channel:
         try:
             room = await state_repo.get_room(room_id)
             if room:
-                join_event = CommandEvent(
+                already_in_room = player_id in room.players
+                command = "/sync" if already_in_room else "/join"
+                event = CommandEvent(
                     source="web",
                     chat_id=room.chat_id,
                     room_id=room_id,
                     player_id=player_id,
                     username=player_id,
-                    command="/join",
+                    command=command,
                     args=""
                 )
                 await rabbit_channel.default_exchange.publish(
-                    aio_pika.Message(body=join_event.model_dump_json().encode()),
+                    aio_pika.Message(body=event.model_dump_json().encode()),
                     routing_key="tg_updates",
                 )
-                logger.info("📢 Отправлено событие /join для %s", player_id)
+                logger.info("📢 Отправлено %s для %s", command, player_id)
         except Exception as e:
-            logger.error("❌ Ошибка при отправке /join: %s", e)
+            logger.error("❌ Ошибка при отправке события подключения: %s", e)
 
     try:
         while True:
