@@ -4,16 +4,19 @@ from src.bot.handlers.game import GameHandler
 from src.bot.handlers.lobby import LobbyHandler
 from src.bot.router import Router
 from src.infrastructure.redis_repo import RedisStateRepository
+from src.shared.domain_events import (
+    ButtonClickEvent,
+    CommandEvent,
+    DocumentEvent,
+    DomainEvent,
+    TextEvent,
+)
 from src.shared.logger import get_logger
 
 logger = get_logger(__name__)
 
-
-class TelegramRouter:
-    """Диспетчер входящих Telegram-обновлений.
-
-    Теперь использует декораторы и реестр `Router` для маршрутизации.
-    """
+class EventRouter:
+    """Диспетчер входящих абстрактных событий (DomainEvent)."""
 
     def __init__(
         self,
@@ -29,113 +32,104 @@ class TelegramRouter:
         self.router.include_class(game_handler)
         self.router.include_class(admin_handler)
 
-    async def handle_update(self, update: dict) -> None:
-        """Главный входной пункт для всех Telegram-обновлений."""
-        logger.info("📩 Получен update: %s", update.get("update_id"))
+    async def handle_event(self, event: DomainEvent) -> None:
+        """Главный входной пункт для всех событий (Telegram/Web)."""
+        logger.info("📩 Получено событие: %s от %s", type(event).__name__, event.source)
 
-        message: dict | None = update.get("message")
-        if message:
-            await self._handle_message(message)
-            return
+        if isinstance(event, CommandEvent):
+            await self._handle_command(event)
+        elif isinstance(event, TextEvent):
+            await self._handle_text(event)
+        elif isinstance(event, ButtonClickEvent):
+            await self._handle_callback(event)
+        elif isinstance(event, DocumentEvent):
+            await self._handle_document(event)
 
-        callback_query: dict | None = update.get("callback_query")
-        if callback_query:
-            await self._handle_callback(callback_query)
-
-    async def _handle_message(self, message: dict) -> None:
-        text: str = (message.get("text") or "").strip()
-        chat_id: int = message.get("chat", {}).get("id", 0)
-        is_private = message.get("chat", {}).get("type", "") == "private"
-        user = message.get("from", {})
-        player_id = str(user.get("id", ""))
-        user_tg_id = int(user.get("id", 0))
-        username = user.get("username") or user.get("first_name", "unknown")
-
-        room_id = f"room_{chat_id}"
-
+    async def _handle_command(self, event: CommandEvent) -> None:
         lobby_dto = BaseLobbyDTO(
-            room_id=room_id,
-            player_id=player_id,
-            telegram_id=user_tg_id,
-            group_chat_id=chat_id if not is_private else 0,
-            username=username,
-            first_name=user.get("first_name", ""),
+            room_id=event.room_id,
+            player_id=event.player_id,
+            telegram_id=event.user_tg_id or 0,
+            group_chat_id=event.chat_id,
+            username=event.username,
+            first_name=event.username,
         )
 
         kwargs = {
-            "message": message,
-            "text": text,
-            "chat_id": chat_id,
-            "is_private": is_private,
-            "player_id": player_id,
-            "user_tg_id": user_tg_id,
-            "username": username,
-            "room_id": room_id,
+            "chat_id": event.chat_id,
+            "player_id": event.player_id,
+            "user_tg_id": event.user_tg_id,
+            "username": event.username,
+            "room_id": event.room_id,
             "lobby_dto": lobby_dto,
+            "text": f"{event.command} {event.args}".strip(), # For compatibility if handlers parse text
         }
 
-        if "document" in message:
-            for handler in self.router.document_handlers:
-                await self.router.execute_handler(handler, **kwargs)
-            return
+        if event.command in self.router.commands:
+            handler = self.router.commands[event.command]
+            await self.router.execute_handler(handler, **kwargs)
+        else:
+            logger.debug("Неизвестная команда: %s", event.command)
 
-        if text.startswith("/"):
-            cmd = text.split(" ")[0]
-            if cmd in self.router.commands:
-                handler = self.router.commands[cmd]
-                await self.router.execute_handler(handler, **kwargs)
-        elif text:
-            # Для не-команд в ЛС ищем активную комнату игрока
-            if is_private:
-                active_room = await self._state_repo.get_active_room(user_tg_id)
-                if active_room:
-                    room_id = active_room
-                    kwargs["room_id"] = room_id
+    async def _handle_text(self, event: TextEvent) -> None:
+        room_id = event.room_id
+        
+        # Для сообщений в ЛС ищем активную игру
+        if event.is_private and event.user_tg_id:
+            active_room = await self._state_repo.get_active_room(event.user_tg_id)
+            if active_room:
+                room_id = active_room
 
-            room = await self._state_repo.get_room(room_id)
-            kwargs["room"] = room
-            for handler in self.router.message_handlers:
-                result = await self.router.execute_handler(handler, **kwargs)
-                if result:
-                    break
-
-    async def _handle_callback(self, callback_query: dict) -> None:
-        user: dict = callback_query.get("from", {})
-        player_id = str(user.get("id", ""))
-        username: str = user.get("username") or user.get("first_name", "unknown")
-        user_tg_id = int(user.get("id", 0))
-
-        data: str = callback_query.get("data", "")
-        message: dict = callback_query.get("message", {})
-        chat_id = message.get("chat", {}).get("id", 0)
-        message_id: int = message.get("message_id", 0)
-        cb_id = callback_query.get("id", "")
-
-        room_id = f"room_{chat_id}"
+        room = await self._state_repo.get_room(room_id)
 
         kwargs = {
-            "callback_query": callback_query,
-            "data": data,
-            "cb_id": cb_id,
-            "message": message,
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "player_id": player_id,
-            "username": username,
-            "user_tg_id": user_tg_id,
+            "chat_id": event.chat_id,
+            "is_private": event.is_private,
+            "player_id": event.player_id,
+            "user_tg_id": event.user_tg_id,
+            "username": event.username,
             "room_id": room_id,
+            "room": room,
+            "text": event.text,
+        }
+
+        for handler in self.router.message_handlers:
+            result = await self.router.execute_handler(handler, **kwargs)
+            if result:
+                break
+
+    async def _handle_callback(self, event: ButtonClickEvent) -> None:
+        kwargs = {
+            "data": event.data, # Может быть переопределено parse()
+            "cb_id": event.callback_id,
+            "chat_id": event.chat_id,
+            "message_id": event.message_id,
+            "player_id": event.player_id,
+            "username": event.username,
+            "user_tg_id": event.user_tg_id,
+            "room_id": event.room_id,
         }
 
         for prefix, handler in self.router.callbacks.items():
-            if data.startswith(prefix):
+            if event.data.startswith(prefix):
                 callback_class = getattr(handler, "__callback_class__", None)
                 if callback_class:
                     try:
-                        parsed_data = callback_class.parse(data)
+                        parsed_data = callback_class.parse(event.data)
                         kwargs["data"] = parsed_data
                     except Exception as e:
-                        logger.error("Failed to parse callback data '%s': %s", data, e)
+                        logger.error("Failed to parse callback data '%s': %s", event.data, e)
                         return
 
                 await self.router.execute_handler(handler, **kwargs)
                 return
+
+    async def _handle_document(self, event: DocumentEvent) -> None:
+        kwargs = {
+            "chat_id": event.chat_id,
+            "file_id": event.file_id,
+            "file_name": event.file_name,
+            "caption": event.caption,
+        }
+        for handler in self.router.document_handlers:
+            await self.router.execute_handler(handler, **kwargs)

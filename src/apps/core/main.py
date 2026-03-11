@@ -14,7 +14,7 @@ from src.application.special_events import (
 )
 from src.application.start_game import StartGameUseCase
 from src.application.submit_answer import SubmitAnswerUseCase
-from src.bot.handler import TelegramRouter
+from src.bot.handler import EventRouter
 from src.bot.handlers.admin import AdminHandler
 from src.bot.handlers.game import GameHandler
 from src.bot.handlers.lobby import LobbyHandler
@@ -29,9 +29,21 @@ from src.infrastructure.rabbit_rpc import RabbitMQMessageGateway
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.shared.config import AppSettings
 from src.shared.logger import get_logger
-from src.shared.messages import IncomingTelegramEvent
+from src.shared.domain_events import (
+    ButtonClickEvent,
+    CommandEvent,
+    DocumentEvent,
+    DomainEvent,
+    TextEvent,
+)
+from pydantic import TypeAdapter
 
 logger = get_logger(__name__)
+
+# Адаптер для десериализации различных типов событий
+event_adapter = TypeAdapter(
+    CommandEvent | TextEvent | ButtonClickEvent | DocumentEvent
+)
 
 async def main() -> None:
     settings = AppSettings()
@@ -127,7 +139,7 @@ async def main() -> None:
         rabbit_publisher=rabbitmq,
     )
 
-    router = TelegramRouter(
+    router = EventRouter(
         state_repo=state_repo,
         lobby_handler=lobby_handler,
         game_handler=game_handler,
@@ -149,9 +161,9 @@ async def main() -> None:
         async def process_update(message: aio_pika.IncomingMessage):
             async with message.process():
                 try:
-                    event = IncomingTelegramEvent.model_validate_json(message.body)
-                    # Вызываем роутер с "сырыми" данными Telegram, как это было раньше
-                    await router.handle_update(event.data)
+                    # Десериализуем в конкретный подкласс DomainEvent
+                    event = event_adapter.validate_json(message.body)
+                    await router.handle_event(event)
                 except ValidationError as e:
                     logger.error("❌ Неверный формат события: %s", e)
                 except Exception as e:

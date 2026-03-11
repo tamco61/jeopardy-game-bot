@@ -3,10 +3,10 @@ import aio_pika
 import aiohttp
 from pydantic import ValidationError
 
+from src.apps.poller.mapper import EventMapper
 from src.infrastructure.telegram import TelegramHttpClient
 from src.shared.config import AppSettings
 from src.shared.logger import get_logger
-from src.shared.messages import IncomingTelegramEvent
 
 logger = get_logger(__name__)
 
@@ -43,15 +43,13 @@ async def main():
                     offset = update["update_id"] + 1
                     
                     try:
-                        event = IncomingTelegramEvent(
-                            update_id=update["update_id"],
-                            data=update
-                        )
-                        await channel.default_exchange.publish(
-                            aio_pika.Message(body=event.model_dump_json().encode()),
-                            routing_key="tg_updates",
-                        )
-                        logger.debug("📥 Отправлен update_id: %s", update["update_id"])
+                        events = EventMapper.map_telegram_update(update)
+                        for event in events:
+                            await channel.default_exchange.publish(
+                                aio_pika.Message(body=event.model_dump_json().encode()),
+                                routing_key="tg_updates",
+                            )
+                        logger.debug("📥 Обработан update_id: %s", update["update_id"])
                     except ValidationError as e:
                         logger.error("❌ Ошибка парсинга события Telegram: %s", e)
                         

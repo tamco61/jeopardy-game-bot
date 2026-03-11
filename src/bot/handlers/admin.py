@@ -39,14 +39,13 @@ class AdminHandler:
             await self._tg.send_message(chat_id, f"Ошибка: {e}")
 
     @document()
-    async def handle_document(self, chat_id: int, message: dict) -> None:
-        doc = message["document"]
-        caption = message.get("caption", "").strip()
+    async def handle_document(self, chat_id: int, file_id: str, file_name: str, caption: str) -> None:
+        caption = caption.strip()
 
-        if not caption.startswith("/upload_pack") or not doc.get("file_name", "").endswith(".siq"):
+        if not caption.startswith("/upload_pack") or not file_name.endswith(".siq"):
             return
 
-        file_id = doc["file_id"]
+
         try:
             file_info = await self._tg.get_file(file_id)
             if not file_info.get("ok"):
