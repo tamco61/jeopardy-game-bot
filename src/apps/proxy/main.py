@@ -3,6 +3,10 @@ import json
 import logging
 import os
 from typing import Dict, List, Set
+import uuid
+from pathlib import Path
+from fastapi import File, UploadFile, HTTPException, BackgroundTasks
+
 
 import aio_pika
 import redis.asyncio as aioredis
@@ -107,6 +111,65 @@ async def shutdown_event():
     if redis_client:
         await redis_client.close()
     logger.info("👋 API Gateway остановлен.")
+
+
+@app.post("/upload-pack")
+async def upload_siq_pack(
+        background_tasks: BackgroundTasks,
+        file: UploadFile = File(...)
+):
+    """
+    Эндпоинт для загрузки .siq файлов.
+    Принимает файл, сохраняет на диск и ставит задачу парсеру в очередь.
+    """
+    if not file.filename.endswith('.siq'):
+        raise HTTPException(status_code=400, detail="Только файлы с расширением .siq разрешены.")
+
+    # Создаем папку для временных файлов, если её нет
+    temp_dir = Path("temp_uploads")
+    temp_dir.mkdir(exist_ok=True)
+
+    # Генерируем уникальное имя, чтобы файлы с одинаковыми названиями не перезаписали друг друга
+    safe_filename = f"{uuid.uuid4().hex}_{file.filename}"
+    file_path = temp_dir / safe_filename
+
+    # Сохраняем файл асинхронно
+    try:
+        contents = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(contents)
+    except Exception as e:
+        logger.error("❌ Ошибка при сохранении загруженного файла: %s", e)
+        raise HTTPException(status_code=500, detail="Ошибка при сохранении файла на сервере.")
+
+    # Отправляем задачу в RabbitMQ
+    if rabbit_channel:
+        try:
+            message_body = json.dumps({"file_path": str(file_path)})
+
+            await rabbit_channel.default_exchange.publish(
+                aio_pika.Message(
+                    body=message_body.encode(),
+                    delivery_mode=aio_pika.DeliveryMode.PERSISTENT
+                ),
+                routing_key="siq_parse_tasks",
+            )
+            logger.info("📦 Файл %s загружен и отправлен в очередь на парсинг.", safe_filename)
+        except Exception as e:
+            logger.error("❌ Ошибка при отправке задачи в RabbitMQ: %s", e)
+            # Если RabbitMQ упал, удаляем файл, чтобы не засорять диск
+            if file_path.exists():
+                file_path.unlink()
+            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера (брокер сообщений недоступен).")
+    else:
+        logger.error("❌ Канал RabbitMQ не инициализирован.")
+        raise HTTPException(status_code=500, detail="Сервис временно недоступен.")
+
+    return {
+        "status": "success",
+        "message": "Пак успешно загружен и добавлен в очередь на обработку.",
+        "filename": file.filename
+    }
 
 @app.get("/health")
 async def health():

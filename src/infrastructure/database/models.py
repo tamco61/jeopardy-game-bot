@@ -144,6 +144,13 @@ class QuestionModel(Base):
     )
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    media_type: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default=None
+    )
+    telegram_file_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, default=None
+    )
+
     theme: Mapped[ThemeModel] = relationship(back_populates="questions")
 
 

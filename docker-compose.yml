@@ -45,11 +45,20 @@ services:
     env_file: .env
     restart: unless-stopped
 
-  worker:
+  telegram-worker:
     build: .
     command: ["uv", "run", "python", "-m", "src.apps.worker.main"]
     depends_on:
       - rabbitmq
+    env_file: .env
+    restart: unless-stopped
+
+  parser-worker:
+    build: .
+    command: ["uv", "run", "python", "-m", "src.apps.parser.main"]
+    depends_on:
+      - rabbitmq
+      - postgres
     env_file: .env
     restart: unless-stopped
 

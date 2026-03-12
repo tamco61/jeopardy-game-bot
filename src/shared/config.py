@@ -22,6 +22,7 @@ class AppSettings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str = ""
+    storage_chat_id: int | str = -5165779152  # ID чата для хранения медиафайлов
 
     # App
     debug: bool = False

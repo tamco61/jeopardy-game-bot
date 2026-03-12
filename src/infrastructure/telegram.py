@@ -120,6 +120,57 @@ class TelegramHttpClient:
                 async for chunk in resp.content.iter_chunked(8192):
                     await f.write(chunk)
 
+    async def send_media(
+            self,
+            chat_id: int | str,
+            media_type: str,
+            media: str | bytes,
+            filename: str | None = None,
+            caption: str | None = None,
+            reply_markup: dict | None = None,
+    ) -> dict:
+        """
+        Отправить медиафайл в чат.
+
+        :param media_type: "photo", "video", "audio", "document"
+        :param media: str (file_id) для мгновенной отправки ИЛИ bytes для загрузки
+        """
+        if self._session is None or self._session.closed:
+            raise RuntimeError("HTTP-сессия не открыта. Вызовите start().")
+
+        method_name = f"send{media_type.capitalize()}"
+        url = f"{self._base_url}/{method_name}"
+
+        # 1. СЦЕНАРИЙ: Отправка по file_id (кэш)
+        if isinstance(media, str):
+            payload: dict[str, Any] = {"chat_id": chat_id, media_type: media}
+            if caption:
+                payload["caption"] = caption
+            if reply_markup:
+                payload["reply_markup"] = json.dumps(reply_markup)
+
+            return await self._post(method_name, payload)
+
+        # 2. СЦЕНАРИЙ: Загрузка нового файла (байты)
+        from aiohttp import FormData
+
+        data = FormData()
+        data.add_field("chat_id", str(chat_id))
+
+        # Обязательно передаем filename, иначе Telegram может не понять формат
+        safe_filename = filename or f"file.{media_type}"
+        data.add_field(media_type, media, filename=safe_filename)
+
+        if caption:
+            data.add_field("caption", caption)
+        if reply_markup:
+            data.add_field("reply_markup", json.dumps(reply_markup))
+
+        # Делаем запрос в обход _post, чтобы НЕ вызывать raise_for_status()
+        # Это нужно, чтобы перехватить JSON с ошибкой 429 (Rate Limit)
+        async with self._session.post(url, data=data) as resp:
+            return await resp.json()
+
     # ── Внутренний HTTP-метод ───────────────────────
 
     async def _post(self, method: str, payload: dict) -> dict:

@@ -7,6 +7,13 @@ class QuestionDTO(BaseModel):
     value: int
     question_type: str = "normal"
 
+    media_type: str | None = None
+    media_filename: str | None = None
+
+    media_bytes: bytes | None = None
+
+    telegram_file_id: str | None = None
+
 
 class ThemeDTO(BaseModel):
     name: str
