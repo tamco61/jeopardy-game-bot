@@ -72,7 +72,7 @@ class EventMapper:
             
         if text.startswith("/"):
             parts = text.split(" ", 1)
-            cmd = parts[0]
+            cmd = parts[0].split("@")[0]  # /cmd@botname → /cmd
             args = parts[1] if len(parts) > 1 else ""
             return CommandEvent(
                 source="telegram",

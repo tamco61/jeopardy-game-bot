@@ -92,6 +92,12 @@ class TelegramHttpClient:
         """Удалить webhook (нужно перед запуском long polling)."""
         return await self._post("deleteWebhook", {})
 
+    async def set_my_commands(self, commands: list[dict]) -> dict:
+        """Зарегистрировать меню команд бота."""
+        return await self._post(
+            "setMyCommands", {"commands": json.dumps(commands)}
+        )
+
     async def get_file(self, file_id: str) -> dict:
         """Получить информацию о файле."""
         return await self._post("getFile", {"file_id": file_id})

@@ -19,14 +19,16 @@ from src.application.start_game import StartGameDTO, StartGameUseCase
 from src.application.submit_answer import SubmitAnswerDTO, SubmitAnswerUseCase
 from src.bot.router import command, callback, message
 from src.bot.callback import (
-    SelectPackCallback,
-    SelectQuestionCallback,
-    PressButtonCallback,
-    VerdictCallback,
-    SkipRoundCallback,
-    FinalStartStakesCallback,
     FinalCloseStakesCallback,
     FinalRevealCallback,
+    FinalStartStakesCallback,
+    PressButtonCallback,
+    SelectPackCallback,
+    SelectQuestionCallback,
+    SkipRoundCallback,
+    StakeCallback,
+    StartGameCallback,
+    VerdictCallback,
 )
 from src.bot.ui import JeopardyUI
 from src.domain.room import Phase, Room
@@ -100,6 +102,30 @@ class GameHandler:
         except SQLAlchemyError as e:
             logger.error("Ошибка получения списка паков: %s", e)
             await self._ui.send_message(chat_id, "❌ Произошла ошибка при получении списка пакетов.")
+
+    @callback(StartGameCallback)
+    async def handle_start_game_callback(
+        self, chat_id: int, room_id: str, player_id: str, user_tg_id: int, cb_id: str
+    ) -> None:
+        room = await self._state_repo.get_room(room_id)
+        if room and room.host_id != player_id:
+            await self._ui.answer_callback_query(
+                cb_id, text="⚠️ Только ведущий может запустить игру.", show_alert=True
+            )
+            return
+        try:
+            packs = await self._package_repo.get_all_packages()
+            if not packs:
+                await self._ui.answer_callback_query(
+                    cb_id, text="⚠️ Нет доступных пакетов вопросов.", show_alert=True
+                )
+                return
+            await self._ui.render_pack_selection(chat_id, packs, room_id)
+        except SQLAlchemyError as e:
+            logger.error("Ошибка получения пакетов: %s", e)
+            await self._ui.answer_callback_query(cb_id, text="❌ Ошибка загрузки пакетов.", show_alert=True)
+            return
+        await self._ui.answer_callback_query(cb_id)
 
     @callback(SelectPackCallback)
     async def handle_select_pack(self, chat_id: int, player_id: str, user_tg_id: int, data: SelectPackCallback, cb_id: str) -> None:
@@ -535,13 +561,36 @@ class GameHandler:
                 }
                 await self._ui.send_message(
                     chat_id,
-                    "📝 Прием ставок начат. Игроки могут делать ставки через `/stack <сумма>`. "
-                    "Ведущий: закройте прием, когда все ответят.",
+                    "📝 Прием ставок начат! Каждый игрок получит кнопки ставок в личные сообщения.\n"
+                    "Ведущий: закройте прием, когда все поставят.",
                     reply_markup=kb,
                 )
+                # Рассылаем кнопки ставок каждому игроку в ЛС
+                for player in room.players.values():
+                    if player.telegram_id:
+                        await self._ui.send_stake_options(
+                            player.telegram_id, room_id, player.score
+                        )
             except (SQLAlchemyError, aioredis.RedisError) as e:
                 logger.error("Ошибка старта финальных ставок: %s", e)
         await self._ui.answer_callback_query(cb_id)
+
+    @callback(StakeCallback)
+    async def handle_stake_callback(
+        self, chat_id: int, player_id: str, username: str, message_id: int, data: StakeCallback, cb_id: str
+    ) -> None:
+        room_id, amount = data.room_id, data.amount
+        try:
+            await self._place_stake.execute(room_id, player_id, amount)
+            if message_id > 0:
+                await self._ui.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=f"✅ Ставка принята: **{amount}** очков",
+                )
+            await self._ui.answer_callback_query(cb_id, text=f"Ставка {amount} принята!")
+        except (SQLAlchemyError, aioredis.RedisError) as e:
+            await self._ui.answer_callback_query(cb_id, text=f"Ошибка: {e}", show_alert=True)
 
     @callback(FinalCloseStakesCallback)
     async def handle_final_close_stakes(self, chat_id: int, data: FinalCloseStakesCallback, cb_id: str) -> None:

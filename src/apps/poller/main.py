@@ -27,6 +27,21 @@ async def main():
 
     try:
         await telegram_client.delete_webhook()
+
+        await telegram_client.set_my_commands([
+            {"command": "start", "description": "Инструкция по игре"},
+            {"command": "create_lobby", "description": "Создать лобби (стать ведущим)"},
+            {"command": "join", "description": "Войти в лобби"},
+            {"command": "ready", "description": "Готов к игре"},
+            {"command": "notready", "description": "Не готов к игре"},
+            {"command": "leave", "description": "Покинуть лобби"},
+            {"command": "start_game", "description": "Запустить игру (только ведущий)"},
+            {"command": "pause", "description": "Поставить игру на паузу"},
+            {"command": "unpause", "description": "Снять паузу"},
+            {"command": "results", "description": "Последние результаты игры"},
+        ])
+        logger.info("✅ Меню команд зарегистрировано в Telegram")
+
         offset = None
         logger.info("📡 Telegram Poller запущен. Начинаю long polling...")
 

@@ -1,10 +1,15 @@
 import aiohttp
 
 from src.bot.callback import (
+    LobbyLeaveCallback,
+    LobbyNotReadyCallback,
+    LobbyReadyCallback,
+    PressButtonCallback,
     SelectPackCallback,
     SelectQuestionCallback,
     SkipRoundCallback,
-    PressButtonCallback,
+    StartGameCallback,
+    StakeCallback,
 )
 from src.domain.room import Phase, Room
 from src.infrastructure.rabbit import RabbitMQPublisher
@@ -246,18 +251,105 @@ class JeopardyUI:
             reply_markup={"inline_keyboard": keyboard}
         )
 
-    async def render_lobby_update(self, chat_id: int, room: Room) -> None:
-        """Отрисовывает состояние лобби для всех платформ (TG + Web)."""
-        players_list = [f"@{p.username}" for p in room.players.values()]
-        text = f"👥 **Игроков в лобби: {len(players_list)}**\n" + ", ".join(players_list)
-        
-        # В Telegram
-        await self._tg.send_message(chat_id, text)
-        
-        # В Web
+    async def render_lobby_update(self, chat_id: int, room: Room) -> int | None:
+        """Отрисовывает состояние лобби для всех платформ (TG + Web).
+
+        Returns:
+            message_id нового сообщения или None если было редактирование.
+        """
+        host = room.players.get(room.host_id)
+        host_line = (
+            f"🎙 Ведущий: @{host.username}\n\n" if host else ""
+        )
+
+        lines = []
+        for p in room.players.values():
+            icon = "✅" if p.is_ready else "⏳"
+            lines.append(f"{icon} @{p.username}: {p.score}")
+
+        players_block = "\n".join(lines) if lines else "Пока никого нет"
+        text = (
+            f"🎮 **Лобби игры**\n\n"
+            f"{host_line}"
+            f"👥 Игроки ({len(lines)}):\n{players_block}\n\n"
+            f"Нажми **Готов**, когда будешь готов к игре!"
+        )
+
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "✅ Готов",
+                        "callback_data": LobbyReadyCallback().pack(),
+                    },
+                    {
+                        "text": "❌ Не готов",
+                        "callback_data": LobbyNotReadyCallback().pack(),
+                    },
+                    {
+                        "text": "🚪 Выйти",
+                        "callback_data": LobbyLeaveCallback().pack(),
+                    },
+                ],
+                [
+                    {
+                        "text": "🚀 Начать игру",
+                        "callback_data": StartGameCallback().pack(),
+                    }
+                ],
+            ]
+        }
+
+        # Бродкастим в Web
         await self._broadcast_ui(str(room.room_id), "lobby_updated", {
             "players": [
                 {"id": p.player_id, "name": p.display_name, "is_ready": p.is_ready}
                 for p in room.players.values()
             ]
         })
+
+        # Редактируем существующее сообщение или отправляем новое
+        if room.last_lobby_message_id:
+            try:
+                await self._tg.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=room.last_lobby_message_id,
+                    text=text,
+                    reply_markup=keyboard,
+                )
+                return None
+            except aiohttp.ClientError as e:
+                logger.debug("Не удалось отредактировать лобби-сообщение: %s", e)
+
+        sent = await self._tg.send_message(chat_id, text, reply_markup=keyboard)
+        if sent and "result" in sent:
+            return sent["result"]["message_id"]
+        return None
+
+    async def send_stake_options(
+        self, player_telegram_id: int, room_id: str, score: int
+    ) -> None:
+        """Отправить игроку в ЛС кнопки с вариантами ставок."""
+        if score > 0:
+            opts = sorted({
+                max(1, score // 4),
+                max(1, score // 2),
+                max(1, 3 * score // 4),
+                score,
+            })
+        else:
+            opts = [0]
+
+        buttons = [
+            {
+                "text": f"{o} 💰",
+                "callback_data": StakeCallback(room_id=room_id, amount=o).pack(),
+            }
+            for o in opts[:4]
+        ]
+        kb = {"inline_keyboard": [buttons]}
+        await self._tg.send_message(
+            player_telegram_id,
+            f"💰 **Финальная ставка!**\nВаш счёт: **{score}**\nСделайте ставку:",
+            reply_markup=kb,
+        )
