@@ -1,3 +1,5 @@
+import asyncio
+
 import aiohttp
 
 from src.bot.callback import (
@@ -73,24 +75,28 @@ class JeopardyUI:
             "scores": {p.player_id: {"name": p.display_name, "score": p.score} for p in room.players.values()}
         })
 
-        # Пытаемся редактировать предыдущее сообщение, чтобы не спамить
+        # Пытаемся редактировать предыдущее сообщение
         if room.last_board_message_id:
             try:
-                return await self._tg.edit_message_text(
+                await self._tg.edit_message_text(
                     chat_id=chat_id,
                     message_id=room.last_board_message_id,
                     text=text,
                     reply_markup={"inline_keyboard": keyboard},
                 )
+                return None  # message_id не изменился
             except aiohttp.ClientError as e:
-                logger.debug(f"Could not edit board message: {e}")
+                logger.debug("Не удалось отредактировать табло: %s", e)
+                await self.delete_message(chat_id, room.last_board_message_id)
 
         sent_msg = await self._tg.send_message(
             chat_id,
             text,
             reply_markup={"inline_keyboard": keyboard},
         )
-        return sent_msg
+        if sent_msg and "result" in sent_msg:
+            return sent_msg["result"]["message_id"]
+        return None
 
     def format_scoreboard(self, room: Room) -> str:
         """Форматирует текущий счет игроков."""
@@ -141,27 +147,78 @@ class JeopardyUI:
             callback_query_id, text, show_alert
         )
 
-    async def show_question(self, chat_id: int, room_id: str, text: str, value: int, reply_markup: dict | None = None) -> dict:
-        """Показать текст вопроса в чате."""
+    async def show_question(
+        self,
+        chat_id: int,
+        room_id: str,
+        text: str,
+        value: int,
+        reply_markup: dict | None = None,
+    ) -> int | None:
+        """Показать текст вопроса в чате. Возвращает message_id."""
         await self._broadcast_ui(room_id, "question_opened", {
             "text": text,
-            "value": value
+            "value": value,
         })
-        return await self._tg.send_message(
+        sent = await self._tg.send_message(
             chat_id,
             f"💰 Вопрос за {value}\n\n{text}",
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
         )
+        if sent and "result" in sent:
+            return sent["result"]["message_id"]
+        return None
 
-    async def show_verdict(self, chat_id: int, room_id: str, verdict_text: str) -> None:
-        """Объявить вердикт ведущего в группе."""
+    async def show_verdict(
+        self,
+        chat_id: int,
+        room_id: str,
+        verdict_text: str,
+        buzzer_message_id: int | None = None,
+    ) -> None:
+        """Объявить вердикт ведущего — редактирует buzzer-сообщение."""
         await self._broadcast_ui(room_id, "verdict_announced", {
-            "verdict": verdict_text
+            "verdict": verdict_text,
         })
-        await self._tg.send_message(
-            chat_id,
-            f"⚖️ Ведущий вынес вердикт: {verdict_text}",
-        )
+        if buzzer_message_id:
+            try:
+                await self._tg.edit_message_text(
+                    chat_id,
+                    buzzer_message_id,
+                    f"⚖️ {verdict_text}",
+                )
+                asyncio.create_task(
+                    self._delete_after(chat_id, buzzer_message_id, delay=4.0)
+                )
+                return
+            except aiohttp.ClientError as e:
+                logger.debug("Не удалось отредактировать buzzer для вердикта: %s", e)
+        await self.send_temporary(chat_id, f"⚖️ {verdict_text}", delay=4.0)
+
+    async def delete_message(self, chat_id: int, message_id: int) -> None:
+        """Тихо удалить сообщение (игнорирует ошибки)."""
+        try:
+            await self._tg.delete_message(chat_id, message_id)
+        except Exception as e:
+            logger.debug("Не удалось удалить сообщение %d: %s", message_id, e)
+
+    async def send_temporary(
+        self, chat_id: int, text: str, delay: float = 5.0
+    ) -> None:
+        """Отправить сообщение и удалить его через delay секунд."""
+        sent = await self._tg.send_message(chat_id, text)
+        if sent and "result" in sent:
+            msg_id = sent["result"]["message_id"]
+            asyncio.create_task(self._delete_after(chat_id, msg_id, delay))
+
+    async def _delete_after(
+        self, chat_id: int, message_id: int, delay: float
+    ) -> None:
+        try:
+            await asyncio.sleep(delay)
+            await self.delete_message(chat_id, message_id)
+        except asyncio.CancelledError:
+            pass
 
     async def render_buzzer(self, chat_id: int, room_id: str, message_id: int, text: str = "Жмите кнопку!") -> None:
         """Восстановить кнопку ответа на сообщении."""

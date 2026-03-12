@@ -173,20 +173,20 @@ class GameHandler:
             )
             res = await self._select_question.execute(dto)
 
-            await self._ui.show_question(room.chat_id, room_id, res.question_text, res.question_value)
-
             if res.phase == Phase.READING.value:
-                kb = {
-                    "inline_keyboard": [[{"text": "🔴 Ждите...", "callback_data": PressButtonCallback(chat_id=chat_id).pack()}]]
+                # Вопрос и кнопка — одно сообщение
+                red_btn = {
+                    "inline_keyboard": [[{
+                        "text": "🔴 Ждите...",
+                        "callback_data": PressButtonCallback(chat_id=chat_id).pack(),
+                    }]]
                 }
-                sent_msg = await self._ui.send_message(
-                    room.chat_id,
-                    "Ожидайте активации кнопки...",
-                    reply_markup=kb,
+                msg_id = await self._ui.show_question(
+                    room.chat_id, room_id,
+                    res.question_text, res.question_value,
+                    reply_markup=red_btn,
                 )
-                if "result" in sent_msg:
-                    msg_id = sent_msg["result"]["message_id"]
-                    # Сохраняем ID сообщения с кнопкой сразу
+                if msg_id:
                     try:
                         room = await self._state_repo.get_room(room_id)
                         if room:
@@ -320,10 +320,6 @@ class GameHandler:
                     reply_markup=keyboard,
                 )
 
-                await self._ui.send_message(
-                    chat_id=room.chat_id,
-                    text=f"Игрок @{username} дал ответ. Ждём вердикт ведущего...",
-                )
                 if is_private:
                     await self._ui.send_message(chat_id, "✅ Твой ответ передан ведущему!")
 
@@ -353,7 +349,10 @@ class GameHandler:
                         chat_id=chat_id, message_id=message_id, text=f"Вердикт: {verdict_text}"
                     )
 
-                await self._ui.show_verdict(room.chat_id, room_id, verdict_text)
+                await self._ui.show_verdict(
+                    room.chat_id, room_id, verdict_text,
+                    buzzer_message_id=room.last_buzzer_message_id,
+                )
 
                 # Чекпоинт: сохраняем текущее состояние в Postgres
                 if self._session_repo:
@@ -372,12 +371,13 @@ class GameHandler:
                         await self._handle_round_transition(room)
 
                 if not round_finished and room.phase == Phase.BOARD_VIEW:
+                    # Сбрасываем buzzer_message_id — show_verdict уже
+                    # запустил auto-delete, render_board не должен удалять его
+                    room.last_buzzer_message_id = None
+                    await self._state_repo.save_room(room)
                     await self.render_board(room.chat_id, room)
                 elif room.phase == Phase.WAITING_FOR_PUSH:
-                    # Восстанавливаем кнопку и таймер вопроса
-                    if message_id > 0:
-                        await self._ui.send_message(room.chat_id, "❌ Неверно! Кто ещё?")
-
+                    # Восстанавливаем кнопку (редактируем то же сообщение)
                     if room.last_buzzer_message_id:
                         await self._ui.render_buzzer(room.chat_id, room_id, room.last_buzzer_message_id)
 
@@ -403,9 +403,18 @@ class GameHandler:
         logger.info("🔄 Снимок состояния отправлен для комнаты %s", room_id)
 
     async def render_board(self, chat_id: int, room: Room) -> None:
-        if not room.current_round_id: return
+        if not room.current_round_id:
+            return
+        # Удаляем сообщение с вопросом/кнопкой перед показом табло
+        if room.last_buzzer_message_id:
+            await self._ui.delete_message(chat_id, room.last_buzzer_message_id)
+            room.last_buzzer_message_id = None
+            await self._state_repo.save_room(room)
         board_data = await self._theme_repo.get_board_for_round(room.current_round_id)
-        await self._ui.render_board(chat_id, room, board_data)
+        new_msg_id = await self._ui.render_board(chat_id, room, board_data)
+        if new_msg_id:
+            room.last_board_message_id = new_msg_id
+            await self._state_repo.save_room(room)
 
     async def _activate_button(self, room_id: str, chat_id: int, message_id: int, delay: float) -> None:
         await asyncio.sleep(delay)
@@ -430,7 +439,7 @@ class GameHandler:
             room = await self._state_repo.get_room(room_id)
             if room and room.phase == Phase.ANSWERING and room.answering_player_id == player_id:
                 # Имитируем неверный ответ
-                await self._ui.send_message(room.chat_id, f"⏰ Время вышло! @{username} не успел ответить.")
+                await self._ui.send_temporary(room.chat_id, f"⏰ Время вышло! @{username} не успел ответить.")
                 await self.handle_verdict(
                     chat_id=room.chat_id,
                     message_id=0,
@@ -453,7 +462,7 @@ class GameHandler:
 
             room = await self._state_repo.get_room(room_id)
             if room and room.phase == Phase.WAITING_FOR_PUSH:
-                await self._ui.send_message(chat_id, "⏰ Время истекло! Никто не ответил.")
+                await self._ui.send_temporary(chat_id, "⏰ Время истекло! Никто не ответил.")
                 # Вызываем переход (он внутри себя закроет вопрос и проверит раунд)
                 await self._handle_round_transition(room)
 
@@ -505,7 +514,7 @@ class GameHandler:
             if cb_id: await self._ui.answer_callback_query(cb_id)
             return
 
-        await self._ui.send_message(room.chat_id, "⏩ Ведущий пропустил раунд!")
+        await self._ui.send_temporary(room.chat_id, "⏩ Ведущий пропустил раунд!")
         # Принудительно закрываем текущий вопрос если он есть
         if room.current_question and room.current_question.question_id is not None:
             room.closed_questions.append(room.current_question.question_id)
@@ -666,7 +675,7 @@ class GameHandler:
                 room.last_board_message_id = None
                 room.phase = Phase.BOARD_VIEW
                 await self._state_repo.save_room(room)
-                await self._ui.send_message(room.chat_id, f"🔔 Раунд завершен! Переходим к: {nxt['name']}")
+                await self._ui.send_temporary(room.chat_id, f"🔔 Переходим к раунду: {nxt['name']}")
                 await self.render_board(room.chat_id, room)
         else:
             # Больше раундов нет — сохраняем результаты и удаляем комнату
