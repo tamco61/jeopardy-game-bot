@@ -33,3 +33,6 @@ class MessageGateway(Protocol):
 
     async def download_file(self, file_path: str, destination: str) -> None:
         ...
+
+    async def delete_message(self, chat_id: int, message_id: int) -> Dict[str, Any]:
+        ...

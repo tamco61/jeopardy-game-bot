@@ -70,3 +70,25 @@ class FinalCloseStakesCallback(CallbackBase):
 class FinalRevealCallback(CallbackBase):
     prefix: ClassVar[str] = "frv"
     room_id: str
+
+
+class LobbyReadyCallback(CallbackBase):
+    prefix: ClassVar[str] = "lr"
+
+
+class LobbyNotReadyCallback(CallbackBase):
+    prefix: ClassVar[str] = "lnr"
+
+
+class LobbyLeaveCallback(CallbackBase):
+    prefix: ClassVar[str] = "ll"
+
+
+class StartGameCallback(CallbackBase):
+    prefix: ClassVar[str] = "sg"
+
+
+class StakeCallback(CallbackBase):
+    prefix: ClassVar[str] = "stk"
+    room_id: str
+    amount: int

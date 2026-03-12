@@ -115,3 +115,6 @@ class RabbitMQMessageGateway(MessageGateway):
 
     async def download_file(self, file_path: str, destination: str) -> None:
         await self._call("download_file", kwargs={"file_path": file_path, "destination": destination})
+
+    async def delete_message(self, chat_id: int, message_id: int) -> Dict[str, Any]:
+        return await self._call("delete_message", kwargs={"chat_id": chat_id, "message_id": message_id})

@@ -19,14 +19,16 @@ from src.application.start_game import StartGameDTO, StartGameUseCase
 from src.application.submit_answer import SubmitAnswerDTO, SubmitAnswerUseCase
 from src.bot.router import command, callback, message
 from src.bot.callback import (
-    SelectPackCallback,
-    SelectQuestionCallback,
-    PressButtonCallback,
-    VerdictCallback,
-    SkipRoundCallback,
-    FinalStartStakesCallback,
     FinalCloseStakesCallback,
     FinalRevealCallback,
+    FinalStartStakesCallback,
+    PressButtonCallback,
+    SelectPackCallback,
+    SelectQuestionCallback,
+    SkipRoundCallback,
+    StakeCallback,
+    StartGameCallback,
+    VerdictCallback,
 )
 from src.bot.ui import JeopardyUI
 from src.domain.room import Phase, Room
@@ -101,6 +103,30 @@ class GameHandler:
             logger.error("Ошибка получения списка паков: %s", e)
             await self._ui.send_message(chat_id, "❌ Произошла ошибка при получении списка пакетов.")
 
+    @callback(StartGameCallback)
+    async def handle_start_game_callback(
+        self, chat_id: int, room_id: str, player_id: str, user_tg_id: int, cb_id: str
+    ) -> None:
+        room = await self._state_repo.get_room(room_id)
+        if room and room.host_id != player_id:
+            await self._ui.answer_callback_query(
+                cb_id, text="⚠️ Только ведущий может запустить игру.", show_alert=True
+            )
+            return
+        try:
+            packs = await self._package_repo.get_all_packages()
+            if not packs:
+                await self._ui.answer_callback_query(
+                    cb_id, text="⚠️ Нет доступных пакетов вопросов.", show_alert=True
+                )
+                return
+            await self._ui.render_pack_selection(chat_id, packs, room_id)
+        except SQLAlchemyError as e:
+            logger.error("Ошибка получения пакетов: %s", e)
+            await self._ui.answer_callback_query(cb_id, text="❌ Ошибка загрузки пакетов.", show_alert=True)
+            return
+        await self._ui.answer_callback_query(cb_id)
+
     @callback(SelectPackCallback)
     async def handle_select_pack(self, chat_id: int, player_id: str, user_tg_id: int, data: SelectPackCallback, cb_id: str) -> None:
         room_id, pack_id = data.room_id, data.pack_id
@@ -147,20 +173,20 @@ class GameHandler:
             )
             res = await self._select_question.execute(dto)
 
-            await self._ui.show_question(room.chat_id, room_id, res.question_text, res.question_value)
-
             if res.phase == Phase.READING.value:
-                kb = {
-                    "inline_keyboard": [[{"text": "🔴 Ждите...", "callback_data": PressButtonCallback(chat_id=chat_id).pack()}]]
+                # Вопрос и кнопка — одно сообщение
+                red_btn = {
+                    "inline_keyboard": [[{
+                        "text": "🔴 Ждите...",
+                        "callback_data": PressButtonCallback(chat_id=chat_id).pack(),
+                    }]]
                 }
-                sent_msg = await self._ui.send_message(
-                    room.chat_id,
-                    "Ожидайте активации кнопки...",
-                    reply_markup=kb,
+                msg_id = await self._ui.show_question(
+                    room.chat_id, room_id,
+                    res.question_text, res.question_value,
+                    reply_markup=red_btn,
                 )
-                if "result" in sent_msg:
-                    msg_id = sent_msg["result"]["message_id"]
-                    # Сохраняем ID сообщения с кнопкой сразу
+                if msg_id:
                     try:
                         room = await self._state_repo.get_room(room_id)
                         if room:
@@ -294,10 +320,6 @@ class GameHandler:
                     reply_markup=keyboard,
                 )
 
-                await self._ui.send_message(
-                    chat_id=room.chat_id,
-                    text=f"Игрок @{username} дал ответ. Ждём вердикт ведущего...",
-                )
                 if is_private:
                     await self._ui.send_message(chat_id, "✅ Твой ответ передан ведущему!")
 
@@ -327,7 +349,10 @@ class GameHandler:
                         chat_id=chat_id, message_id=message_id, text=f"Вердикт: {verdict_text}"
                     )
 
-                await self._ui.show_verdict(room.chat_id, room_id, verdict_text)
+                await self._ui.show_verdict(
+                    room.chat_id, room_id, verdict_text,
+                    buzzer_message_id=room.last_buzzer_message_id,
+                )
 
                 # Чекпоинт: сохраняем текущее состояние в Postgres
                 if self._session_repo:
@@ -346,12 +371,13 @@ class GameHandler:
                         await self._handle_round_transition(room)
 
                 if not round_finished and room.phase == Phase.BOARD_VIEW:
+                    # Сбрасываем buzzer_message_id — show_verdict уже
+                    # запустил auto-delete, render_board не должен удалять его
+                    room.last_buzzer_message_id = None
+                    await self._state_repo.save_room(room)
                     await self.render_board(room.chat_id, room)
                 elif room.phase == Phase.WAITING_FOR_PUSH:
-                    # Восстанавливаем кнопку и таймер вопроса
-                    if message_id > 0:
-                        await self._ui.send_message(room.chat_id, "❌ Неверно! Кто ещё?")
-
+                    # Восстанавливаем кнопку (редактируем то же сообщение)
                     if room.last_buzzer_message_id:
                         await self._ui.render_buzzer(room.chat_id, room_id, room.last_buzzer_message_id)
 
@@ -377,9 +403,18 @@ class GameHandler:
         logger.info("🔄 Снимок состояния отправлен для комнаты %s", room_id)
 
     async def render_board(self, chat_id: int, room: Room) -> None:
-        if not room.current_round_id: return
+        if not room.current_round_id:
+            return
+        # Удаляем сообщение с вопросом/кнопкой перед показом табло
+        if room.last_buzzer_message_id:
+            await self._ui.delete_message(chat_id, room.last_buzzer_message_id)
+            room.last_buzzer_message_id = None
+            await self._state_repo.save_room(room)
         board_data = await self._theme_repo.get_board_for_round(room.current_round_id)
-        await self._ui.render_board(chat_id, room, board_data)
+        new_msg_id = await self._ui.render_board(chat_id, room, board_data)
+        if new_msg_id:
+            room.last_board_message_id = new_msg_id
+            await self._state_repo.save_room(room)
 
     async def _activate_button(self, room_id: str, chat_id: int, message_id: int, delay: float) -> None:
         await asyncio.sleep(delay)
@@ -404,7 +439,7 @@ class GameHandler:
             room = await self._state_repo.get_room(room_id)
             if room and room.phase == Phase.ANSWERING and room.answering_player_id == player_id:
                 # Имитируем неверный ответ
-                await self._ui.send_message(room.chat_id, f"⏰ Время вышло! @{username} не успел ответить.")
+                await self._ui.send_temporary(room.chat_id, f"⏰ Время вышло! @{username} не успел ответить.")
                 await self.handle_verdict(
                     chat_id=room.chat_id,
                     message_id=0,
@@ -427,7 +462,7 @@ class GameHandler:
 
             room = await self._state_repo.get_room(room_id)
             if room and room.phase == Phase.WAITING_FOR_PUSH:
-                await self._ui.send_message(chat_id, "⏰ Время истекло! Никто не ответил.")
+                await self._ui.send_temporary(chat_id, "⏰ Время истекло! Никто не ответил.")
                 # Вызываем переход (он внутри себя закроет вопрос и проверит раунд)
                 await self._handle_round_transition(room)
 
@@ -479,7 +514,7 @@ class GameHandler:
             if cb_id: await self._ui.answer_callback_query(cb_id)
             return
 
-        await self._ui.send_message(room.chat_id, "⏩ Ведущий пропустил раунд!")
+        await self._ui.send_temporary(room.chat_id, "⏩ Ведущий пропустил раунд!")
         # Принудительно закрываем текущий вопрос если он есть
         if room.current_question and room.current_question.question_id is not None:
             room.closed_questions.append(room.current_question.question_id)
@@ -535,13 +570,36 @@ class GameHandler:
                 }
                 await self._ui.send_message(
                     chat_id,
-                    "📝 Прием ставок начат. Игроки могут делать ставки через `/stack <сумма>`. "
-                    "Ведущий: закройте прием, когда все ответят.",
+                    "📝 Прием ставок начат! Каждый игрок получит кнопки ставок в личные сообщения.\n"
+                    "Ведущий: закройте прием, когда все поставят.",
                     reply_markup=kb,
                 )
+                # Рассылаем кнопки ставок каждому игроку в ЛС
+                for player in room.players.values():
+                    if player.telegram_id:
+                        await self._ui.send_stake_options(
+                            player.telegram_id, room_id, player.score
+                        )
             except (SQLAlchemyError, aioredis.RedisError) as e:
                 logger.error("Ошибка старта финальных ставок: %s", e)
         await self._ui.answer_callback_query(cb_id)
+
+    @callback(StakeCallback)
+    async def handle_stake_callback(
+        self, chat_id: int, player_id: str, username: str, message_id: int, data: StakeCallback, cb_id: str
+    ) -> None:
+        room_id, amount = data.room_id, data.amount
+        try:
+            await self._place_stake.execute(room_id, player_id, amount)
+            if message_id > 0:
+                await self._ui.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=f"✅ Ставка принята: **{amount}** очков",
+                )
+            await self._ui.answer_callback_query(cb_id, text=f"Ставка {amount} принята!")
+        except (SQLAlchemyError, aioredis.RedisError) as e:
+            await self._ui.answer_callback_query(cb_id, text=f"Ошибка: {e}", show_alert=True)
 
     @callback(FinalCloseStakesCallback)
     async def handle_final_close_stakes(self, chat_id: int, data: FinalCloseStakesCallback, cb_id: str) -> None:
@@ -617,7 +675,7 @@ class GameHandler:
                 room.last_board_message_id = None
                 room.phase = Phase.BOARD_VIEW
                 await self._state_repo.save_room(room)
-                await self._ui.send_message(room.chat_id, f"🔔 Раунд завершен! Переходим к: {nxt['name']}")
+                await self._ui.send_temporary(room.chat_id, f"🔔 Переходим к раунду: {nxt['name']}")
                 await self.render_board(room.chat_id, room)
         else:
             # Больше раундов нет — сохраняем результаты и удаляем комнату
