@@ -86,6 +86,7 @@ class Room(BaseModel):
     final_question: Question | None = None
     final_stakes: dict[str, int] = Field(default_factory=dict)
     final_answers: dict[str, str] = Field(default_factory=dict)
+    final_verdicts: dict[str, bool] = Field(default_factory=dict) # manual verdicts from host
 
     # Пауза — запоминаем, куда вернуться
     paused_from: Phase | None = Field(default=None, repr=False)
@@ -287,10 +288,10 @@ class Room(BaseModel):
             msg = "Нет финального вопроса"
             raise InvalidTransitionError(self.phase.value, msg)
 
-        results: dict[str, bool] = {}
-        for pid, answer in self.final_answers.items():
-            correct = self.final_question.check_answer(answer)
-            results[pid] = correct
+        # Используем вердикты от ведущего
+        results = self.final_verdicts.copy()
+        
+        for pid, correct in results.items():
             player = self.get_player(pid)
             stake = self.final_stakes.get(pid, 0)
             if correct:

@@ -246,6 +246,7 @@ class JeopardyUI:
             room_id: str,
             verdict_text: str,
             buzzer_message_id: int | None = None,
+            delete_after: bool = True,
     ) -> None:
         """Объявить вердикт ведущего."""
         await self._broadcast_ui(room_id, "verdict_announced", {
@@ -273,15 +274,19 @@ class JeopardyUI:
 
             if res and res.get("ok"):
                 edited_successfully = True
-                # Запускаем удаление сообщения с вопросом через 4 секунды
-                asyncio.create_task(
-                    self._delete_after(chat_id, buzzer_message_id, delay=4.0)
-                )
+                if delete_after:
+                    # Запускаем удаление сообщения с вопросом через 4 секунды
+                    asyncio.create_task(
+                        self._delete_after(chat_id, buzzer_message_id, delay=4.0)
+                    )
 
         # План В: Если отредактировать не удалось ИЛИ ID сообщения не было,
         # только тогда шлем отдельное временное сообщение
         if not edited_successfully:
-            await self.send_temporary(chat_id, verdict_display, delay=4.0)
+            if delete_after:
+                await self.send_temporary(chat_id, verdict_display, delay=4.0)
+            else:
+                await self.send_message(chat_id, verdict_display)
 
     async def delete_message(self, chat_id: int, message_id: int) -> None:
         """Тихо удалить сообщение (игнорирует ошибки)."""

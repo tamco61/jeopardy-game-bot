@@ -349,7 +349,35 @@ class GameHandler:
                     await self._ui.send_message(chat_id, "✅ Твой ответ передан ведущему!")
 
             elif room.phase == Phase.FINAL_ANSWER:
-                await self._ui.send_message(room.chat_id, f"Финальный ответ от @{username} принят.")
+                if not room.host_telegram_id:
+                    await self._ui.send_message(room.chat_id, "⚠️ Ошибка: ID ведущего не найден.")
+                    return
+
+                keyboard = {
+                    "inline_keyboard": [[
+                        {"text": "✅ Верно", "callback_data": VerdictCallback(room_id=room_id, verdict="yes", target_player_id=player_id).pack()},
+                        {"text": "❌ Неверно", "callback_data": VerdictCallback(room_id=room_id, verdict="no", target_player_id=player_id).pack()}
+                    ]]
+                }
+
+                # Получаем правильный ответ для ведущего
+                correct_answer_text = room.final_question.answer if room.final_question else "???"
+
+                await self._ui.send_message(
+                    chat_id=room.host_telegram_id,
+                    text=(
+                        f"🏆 **ФИНАЛЬНЫЙ ОТВЕТ** от @{username}\n\n"
+                        f"🔸 **Его ответ:** {text}\n"
+                        f"🔹 **Правильный ответ:** {correct_answer_text}\n\n"
+                        f"Ваш вердикт?"
+                    ),
+                    reply_markup=keyboard,
+                )
+
+                if is_private:
+                    await self._ui.send_message(chat_id, "✅ Твой финальный ответ передан ведущему!")
+                else:
+                    await self._ui.send_message(room.chat_id, f"Финальный ответ от @{username} принят.")
 
         except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error("Ошибка при сохранении ответа: %s", e)
@@ -381,10 +409,14 @@ class GameHandler:
                         await self._ui.edit_message_text(
                             chat_id=chat_id, message_id=message_id, text=new_text
                         )
+                    
+                    # Удаляем сообщение из ЛС хоста через 3 секунды, чтобы не забивать чат
+                    asyncio.create_task(self._ui._delete_after(chat_id, message_id, delay=3.0))
 
                 await self._ui.show_verdict(
                     room.chat_id, room_id, verdict_text,
                     buzzer_message_id=room.last_buzzer_message_id,
+                    delete_after=is_correct,
                 )
 
                 # Чекпоинт: сохраняем текущее состояние в Postgres
@@ -420,6 +452,28 @@ class GameHandler:
 
             except (SQLAlchemyError, aioredis.RedisError) as e:
                 logger.error("Ошибка при вынесении вердикта: %s", e)
+
+        elif room.phase == Phase.FINAL_ANSWER:
+            verdict, target_player_id = data.verdict, data.target_player_id
+            is_correct = verdict == "yes"
+            
+            # Сохраняем вердикт в комнате
+            room.final_verdicts[target_player_id] = is_correct
+            await self._state_repo.save_room(room)
+            
+            verdict_text = "✅ Верно" if is_correct else "❌ Неверно"
+            
+            # Обновляем сообщение у ведущего, чтобы он видел что нажал
+            if message_id > 0:
+                await self._ui.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=f"Вердикт для @{getattr(room.players.get(target_player_id), 'username', '???')}: {verdict_text}"
+                )
+                # Удаляем сообщение из ЛС хоста через 3 секунды
+                asyncio.create_task(self._ui._delete_after(chat_id, message_id, delay=3.0))
+            
+            await self._ui.answer_callback_query(cb_id, text=f"Вердикт {verdict_text} принят")
 
     @command("/sync")
     async def handle_sync(self, room_id: str) -> None:
@@ -647,18 +701,28 @@ class GameHandler:
         if room.phase == Phase.FINAL_STAKE:
             try:
                 await self._close_final_stake.execute(room_id)
+                
+                # Показываем текст финального вопроса всем
+                q_text = room.final_question.text if room.final_question else "???"
+                q_val = room.final_question.value if room.final_question else 0
+                
+                await self._ui.send_message(
+                    room.chat_id,
+                    f"💰 **ФИНАЛЬНЫЙ ВОПРОС** (за вашу ставку)\n\n"
+                    f"*{q_text}*\n\n"
+                    f"⏰ Игроки, пишите свои ответы МНЕ В ЛИЧКУ! У вас есть время подумать."
+                )
+
                 kb = {
                     "inline_keyboard": [[
                         {"text": "📊 Огласить результаты", "callback_data": FinalRevealCallback(room_id=room_id).pack()}
                     ]]
                 }
-                await self._ui.send_message(
-                    chat_id,
-                    "🔒 Ставки закрыты! Игроки: отправьте свой ответ в чат обычным сообщением.",
-                )
+                
                 await self._ui.send_message(
                     room.host_telegram_id,
-                    "Игроки пишут ответы. Когда будете готовы — нажимайте кнопку:",
+                    "Игроки пишут ответы в ЛС боту. Ответы будут пересылаться вам на проверку.\n"
+                    "Когда все ответы будут проверены — нажимайте кнопку:",
                     reply_markup=kb,
                 )
             except (SQLAlchemyError, aioredis.RedisError) as e:
