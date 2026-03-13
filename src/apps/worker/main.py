@@ -33,7 +33,11 @@ async def main():
             async with message.process():
                 try:
                     cmd = OutgoingTelegramCommand.model_validate_json(message.body)
-                    
+
+                    # --- ДОБАВЬ ЭТУ СТРОЧКУ ---
+                    logger.warning(f"🛠 ВОРКЕР ВЫПОЛНЯЕТ: {cmd.method} | ARGS: {cmd.kwargs}")
+                    # --------------------------
+
                     method = getattr(telegram_client, cmd.method, None)
                     if not method:
                         logger.error("❌ Метод %s не найден в TelegramHttpClient", cmd.method)
@@ -55,12 +59,19 @@ async def main():
                 except ValidationError as e:
                     logger.error("❌ Неверный формат команды: %s", e)
                 except Exception as e:
-                    logger.exception("❌ Ошибка при выполнении команды: %s", e)
-                    # Если был RPC вызов, отправим ошибку, на клиенте будет Exception
-                    err_msg = {"ok": False, "error": str(e)}
-                    # Обработка ошибки
+                    # Проверяем, является ли ошибка "ожидаемой" (от Telegram API)
+                    error_str = str(e)
+                    if "400" in error_str or "Bad Request" in error_str:
+                        # Логируем как предупреждение (желтым), без портянки кода
+                        logger.warning("⚠️ Команда %s отклонена Telegram (400): %s", cmd.method, error_str)
+                    else:
+                        # Если это что-то другое (ошибка сети, JSON и т.д.) — логируем по полной
+                        logger.exception("❌ Критическая ошибка при выполнении команды %s: %s", cmd.method, e)
+
+                    # Формируем ответ для игры, чтобы она знала: команда НЕ выполнена
+                    err_msg = {"ok": False, "error": error_str}
+
                     try:
-                        # pylint: disable=used-before-assignment
                         if cmd.reply_to and cmd.correlation_id:
                             await channel.default_exchange.publish(
                                 aio_pika.Message(
@@ -70,7 +81,7 @@ async def main():
                                 routing_key=cmd.reply_to,
                             )
                     except Exception as fallback_e:
-                        logger.error("Не удалось отправить сообщение об ошибке: %s", fallback_e)
+                        logger.error("Не удалось отправить сообщение об ошибке обратно в RPC: %s", fallback_e)
 
         await queue.consume(process_message)
         

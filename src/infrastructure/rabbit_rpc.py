@@ -92,6 +92,23 @@ class RabbitMQMessageGateway(MessageGateway):
             "chat_id": chat_id, "text": text, "reply_markup": reply_markup
         })
 
+    async def send_media(
+            self,
+            chat_id: int | str,
+            media_type: str,
+            media: str,  # Сюда прилетит наш telegram_file_id
+            caption: Optional[str] = None,
+            reply_markup: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Отправить RPC-запрос на публикацию медиафайла."""
+        return await self._call("send_media", kwargs={
+            "chat_id": chat_id,
+            "media_type": media_type,
+            "media": media,
+            "caption": caption,
+            "reply_markup": reply_markup
+        })
+
     async def edit_message_text(
         self,
         chat_id: int,
@@ -101,6 +118,34 @@ class RabbitMQMessageGateway(MessageGateway):
     ) -> Dict[str, Any]:
         return await self._call("edit_message_text", kwargs={
             "chat_id": chat_id, "message_id": message_id, "text": text, "reply_markup": reply_markup
+        })
+
+    async def edit_message_caption(
+            self,
+            chat_id: int,
+            message_id: int,
+            caption: str,
+            reply_markup: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Редактировать подпись к медиафайлу."""
+        return await self._call("edit_message_caption", kwargs={
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": caption,
+            "reply_markup": reply_markup
+        })
+
+    async def edit_message_reply_markup(
+            self,
+            chat_id: int,
+            message_id: int,
+            reply_markup: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Редактировать ТОЛЬКО клавиатуру (подходит и для текста, и для медиа)."""
+        return await self._call("edit_message_reply_markup", kwargs={
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reply_markup": reply_markup
         })
 
     async def answer_callback_query(

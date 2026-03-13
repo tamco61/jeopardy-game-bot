@@ -43,6 +43,38 @@ class TelegramHttpClient:
             payload["reply_markup"] = json.dumps(reply_markup)
         return await self._post("sendMessage", payload)
 
+    async def edit_message_caption(
+            self,
+            chat_id: int,
+            message_id: int,
+            caption: str,
+            reply_markup: dict | None = None,
+    ) -> dict:
+        """Отредактировать подпись (caption) существующего медиа-сообщения."""
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "caption": caption,
+        }
+        if reply_markup is not None:
+            payload["reply_markup"] = json.dumps(reply_markup)
+        return await self._post("editMessageCaption", payload)
+
+    async def edit_message_reply_markup(
+            self,
+            chat_id: int,
+            message_id: int,
+            reply_markup: dict | None = None,
+    ) -> dict:
+        """Изменить только кнопки (reply_markup) сообщения (работает и для текста, и для медиа)."""
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+        }
+        if reply_markup is not None:
+            payload["reply_markup"] = json.dumps(reply_markup)
+        return await self._post("editMessageReplyMarkup", payload)
+
     async def edit_message_text(
         self,
         chat_id: int,
@@ -129,48 +161,67 @@ class TelegramHttpClient:
             caption: str | None = None,
             reply_markup: dict | None = None,
     ) -> dict:
-        """
-        Отправить медиафайл в чат.
+        """Отправить медиафайл в чат."""
+        import logging
+        logger = logging.getLogger(__name__)
 
-        :param media_type: "photo", "video", "audio", "document"
-        :param media: str (file_id) для мгновенной отправки ИЛИ bytes для загрузки
-        """
         if self._session is None or self._session.closed:
             raise RuntimeError("HTTP-сессия не открыта. Вызовите start().")
 
         method_name = f"send{media_type.capitalize()}"
         url = f"{self._base_url}/{method_name}"
 
-        # 1. СЦЕНАРИЙ: Отправка по file_id (кэш)
+        logger.info(
+            f"🚀 Подготовка send_media: type={media_type}, method={method_name}, is_str={isinstance(media, str)}")
+
+        # 1. СЦЕНАРИЙ: Отправка по file_id (мгновенная)
         if isinstance(media, str):
-            payload: dict[str, Any] = {"chat_id": chat_id, media_type: media}
+            payload = {"chat_id": chat_id, media_type: media}
+
             if caption:
                 payload["caption"] = caption
-            if reply_markup:
-                payload["reply_markup"] = json.dumps(reply_markup)
 
-            return await self._post(method_name, payload)
+            if reply_markup:
+                # Если уже строка - оставляем, если словарь - дампим
+                import json
+                payload["reply_markup"] = json.dumps(reply_markup) if isinstance(reply_markup, dict) else reply_markup
+
+            logger.info(f"📡 Отправляем JSON-запрос на {url} с payload: {payload}")
+
+            try:
+                # ВОТ ЗДЕСЬ ОБЯЗАТЕЛЬНО ДОЛЖЕН БЫТЬ RETURN!
+                async with self._session.post(url, json=payload) as resp:
+                    result = await resp.json()
+                    logger.info(f"✅ Ответ от Telegram API: {result}")
+                    return result
+            except Exception as e:
+                logger.error(f"❌ Ошибка aiohttp при отправке file_id: {e}")
+                return {"ok": False, "error": str(e)}
 
         # 2. СЦЕНАРИЙ: Загрузка нового файла (байты)
         from aiohttp import FormData
+        logger.info("📦 Загрузка физического файла (байт)...")
 
         data = FormData()
         data.add_field("chat_id", str(chat_id))
 
-        # Обязательно передаем filename, иначе Telegram может не понять формат
         safe_filename = filename or f"file.{media_type}"
         data.add_field(media_type, media, filename=safe_filename)
 
         if caption:
             data.add_field("caption", caption)
         if reply_markup:
-            data.add_field("reply_markup", json.dumps(reply_markup))
+            import json
+            data.add_field("reply_markup", json.dumps(reply_markup) if isinstance(reply_markup, dict) else reply_markup)
 
-        # Делаем запрос в обход _post, чтобы НЕ вызывать raise_for_status()
-        # Это нужно, чтобы перехватить JSON с ошибкой 429 (Rate Limit)
-        async with self._session.post(url, data=data) as resp:
-            return await resp.json()
-
+        try:
+            async with self._session.post(url, data=data) as resp:
+                result = await resp.json()
+                logger.info(f"✅ Ответ от Telegram API (загрузка): {result}")
+                return result
+        except Exception as e:
+            logger.error(f"❌ Ошибка aiohttp при загрузке файла: {e}")
+            return {"ok": False, "error": str(e)}
     # ── Внутренний HTTP-метод ───────────────────────
 
     async def _post(self, method: str, payload: dict) -> dict:

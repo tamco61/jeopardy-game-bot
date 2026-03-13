@@ -181,10 +181,18 @@ class GameHandler:
                         "callback_data": PressButtonCallback(chat_id=chat_id).pack(),
                     }]]
                 }
+                print(res)
+                media_type = getattr(res, "media_type")
+                media = getattr(res, "telegram_file_id")
+
                 msg_id = await self._ui.show_question(
-                    room.chat_id, room_id,
-                    res.question_text, res.question_value,
+                    room.chat_id,
+                    room_id,
+                    res.question_text,
+                    res.question_value,
                     reply_markup=red_btn,
+                    media_type=media_type,
+                    media_file_id=media,
                 )
                 if msg_id:
                     try:
@@ -215,6 +223,8 @@ class GameHandler:
 
         except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error("Ошибка при выборе вопроса: %s", e)
+        except Exception as e:
+            logger.exception("Критическая ошибка при отрисовке вопроса: %s", e)
         finally:
             await self._ui.answer_callback_query(cb_id)
 
@@ -248,12 +258,27 @@ class GameHandler:
                 msg_id_to_edit = message_id if message_id > 0 else (room_now.last_buzzer_message_id or 0)
 
                 if msg_id_to_edit > 0:
-                    await self._ui.edit_message_text(
-                        chat_id=room_now.chat_id,
-                        message_id=msg_id_to_edit,
-                        text=f"🛑 Отвечает @{username}! Ждём ответа...",
-                        reply_markup=None # Убираем кнопку
-                    )
+                    # Узнаем, была ли картинка в текущем вопросе
+                    media_type = room_now.current_question.media_type if room_now.current_question else None
+                    new_text = f"🛑 Отвечает @{username}! Ждём ответа..."
+
+                    if media_type:
+                        # Если это картинка, меняем подпись (через клиент Telegram)
+                        # Замени _tg на то, как у тебя называется доступ к клиенту в UI
+                        await getattr(self._ui._tg, "edit_message_caption")(
+                            chat_id=room_now.chat_id,
+                            message_id=msg_id_to_edit,
+                            caption=new_text,
+                            reply_markup=None
+                        )
+                    else:
+                        # Если обычный текст
+                        await self._ui.edit_message_text(
+                            chat_id=room_now.chat_id,
+                            message_id=msg_id_to_edit,
+                            text=new_text,
+                            reply_markup=None
+                        )
 
                 if user_tg_id:
                     await self._ui.send_message(
@@ -345,9 +370,17 @@ class GameHandler:
 
                 verdict_text = "✅ Верно" if is_correct else "❌ Неверно"
                 if message_id > 0:
-                    await self._ui.edit_message_text(
-                        chat_id=chat_id, message_id=message_id, text=f"Вердикт: {verdict_text}"
-                    )
+                    media_type = room.current_question.media_type if room.current_question else None
+                    new_text = f"Вердикт: {verdict_text}"
+
+                    if media_type:
+                        await getattr(self._ui._tg, "edit_message_caption")(
+                            chat_id=chat_id, message_id=message_id, caption=new_text
+                        )
+                    else:
+                        await self._ui.edit_message_text(
+                            chat_id=chat_id, message_id=message_id, text=new_text
+                        )
 
                 await self._ui.show_verdict(
                     room.chat_id, room_id, verdict_text,
@@ -423,7 +456,7 @@ class GameHandler:
         room.activate_buzzer()
         await self._state_repo.save_room(room)
 
-        await self._ui.render_buzzer(chat_id, room_id, message_id, "Жмите кнопку!")
+        await self._ui.render_buzzer(chat_id, room_id, message_id)
 
         # Запуск общего таймера вопроса (10 сек)
         self._remaining_thinking_time[room_id] = 10.0
@@ -434,16 +467,21 @@ class GameHandler:
         """Таймер на ввод текста ответа (10 сек)."""
         try:
             await asyncio.sleep(10)
-            logger.info("⏰ Таймер ответа истек для %s", username)
-
             room = await self._state_repo.get_room(room_id)
             if room and room.phase == Phase.ANSWERING and room.answering_player_id == player_id:
-                # Имитируем неверный ответ
                 await self._ui.send_temporary(room.chat_id, f"⏰ Время вышло! @{username} не успел ответить.")
+
+                # СОЗДАЕМ ОБЪЕКТ, А НЕ СТРОКУ:
+                verdict_data = VerdictCallback(
+                    room_id=room_id,
+                    verdict="no",
+                    target_player_id=player_id
+                )
+
                 await self.handle_verdict(
                     chat_id=room.chat_id,
                     message_id=0,
-                    data=f"verdict:{room_id}:no:{player_id}",
+                    data=verdict_data,
                     cb_id="",
                 )
         except asyncio.CancelledError:

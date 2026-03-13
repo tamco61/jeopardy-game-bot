@@ -11,6 +11,33 @@ class MessageGateway(Protocol):
     ) -> Dict[str, Any]:
         ...
 
+    async def send_media(
+            self,
+            chat_id: int | str,
+            media_type: str,
+            media: str,  # Сюда прилетит наш telegram_file_id
+            caption: Optional[str] = None,
+            reply_markup: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        ...
+
+    async def edit_message_caption(
+            self,
+            chat_id: int,
+            message_id: int,
+            caption: str,
+            reply_markup: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        ...
+
+    async def edit_message_reply_markup(
+            self,
+            chat_id: int,
+            message_id: int,
+            reply_markup: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        ...
+
     async def edit_message_text(
         self,
         chat_id: int,

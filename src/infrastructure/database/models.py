@@ -5,6 +5,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    BigInteger,
     String,
     Text,
     func,
@@ -27,7 +28,7 @@ class UserModel(Base):
         Integer, primary_key=True, autoincrement=True
     )
     telegram_id: Mapped[int] = mapped_column(
-        Integer, unique=True, nullable=False, index=True
+        BigInteger, unique=True, nullable=False, index=True
     )
     username: Mapped[str] = mapped_column(
         String(255), nullable=False, default=""
@@ -178,7 +179,7 @@ class GameSessionModel(Base):
         ForeignKey("packages.id", ondelete="SET NULL"),
         nullable=True,
     )
-    chat_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
 
     # Идентификатор Redis-комнаты (для сверки при восстановлении)
     room_id: Mapped[str | None] = mapped_column(
@@ -197,7 +198,7 @@ class GameSessionModel(Base):
     )
     host_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     host_telegram_id: Mapped[int | None] = mapped_column(
-        Integer, nullable=True
+        BigInteger, nullable=True
     )
     current_round_id: Mapped[int | None] = mapped_column(
         Integer, nullable=True
@@ -261,7 +262,7 @@ class GamePlayerModel(Base):
     username: Mapped[str] = mapped_column(
         String(255), nullable=False, default=""
     )
-    telegram_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # Текущий счёт (обновляется на каждом чекпоинте)
     score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

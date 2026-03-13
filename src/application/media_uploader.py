@@ -25,7 +25,6 @@ class TelegramMediaUploader:
                         continue
 
                     file_id = await self._upload_single_media(question)
-
                     if file_id:
                         question.telegram_file_id = file_id
                         total_uploaded += 1
@@ -72,9 +71,28 @@ class TelegramMediaUploader:
 
     def _extract_file_id(self, tg_response: dict, media_type: str) -> str | None:
         try:
-            msg = tg_response["result"]
-            if media_type == "photo":
+            msg = tg_response.get("result", {})
+
+            # 1. Если Telegram честно вернул массив фото
+            if "photo" in msg:
                 return msg["photo"][-1]["file_id"]
-            return msg[media_type]["file_id"]
-        except KeyError:
+
+            # 2. Если Telegram переделал .webp в документ
+            if "document" in msg:
+                return msg["document"]["file_id"]
+
+            # 3. Если Telegram переделал .webp в стикер
+            if "sticker" in msg:
+                return msg["sticker"]["file_id"]
+
+            # 4. Для видео, аудио и голосовых
+            if media_type in msg:
+                return msg[media_type]["file_id"]
+
+            # Если Telegram прислал что-то вообще неожиданное
+            self._log.error(f"Неизвестный формат ответа Telegram. Не могу найти file_id: {tg_response}")
+            return None
+
+        except Exception as e:
+            self._log.error(f"Ошибка при извлечении file_id: {e}. Ответ Telegram: {tg_response}")
             return None
