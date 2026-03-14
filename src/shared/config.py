@@ -28,6 +28,10 @@ class AppSettings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
+    # Admin Auth
+    admin_user: str = "admin"
+    admin_password: str = "admin"
+
     @field_validator("telegram_bot_token")
     @classmethod
     def token_must_not_be_empty(cls, v: str) -> str:
