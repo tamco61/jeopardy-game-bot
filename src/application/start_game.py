@@ -1,5 +1,3 @@
-import logging
-
 from pydantic import BaseModel
 
 from src.domain.errors import DomainError
@@ -92,6 +90,7 @@ class StartGameUseCase:
                 await self._session_repo.create_session(room)
             except Exception as e:
                 # Не ломаем игру из-за ошибки персистентности
+                import logging
                 logging.getLogger(__name__).error(
                     "Ошибка create_session: %s", e
                 )

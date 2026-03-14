@@ -1,13 +1,11 @@
-from __future__ import annotations
-
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
     Integer,
+    BigInteger,
     String,
     Text,
     func,

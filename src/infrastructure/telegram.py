@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
 import anyio
-from aiohttp import ClientSession, FormData
+from aiohttp import ClientSession
 
 
 class TelegramHttpClient:
@@ -110,11 +109,11 @@ class TelegramHttpClient:
     async def get_updates(
         self,
         offset: int | None = None,
-        poul_timeout: int = 30,
+        timeout: int = 30,
     ) -> dict:
         """Получить обновления через long polling."""
         payload: dict[str, Any] = {
-            "timeout": poul_timeout,
+            "timeout": timeout,
             "allowed_updates": json.dumps(["message", "callback_query"]),
         }
         if offset is not None:
@@ -163,6 +162,7 @@ class TelegramHttpClient:
             reply_markup: dict | None = None,
     ) -> dict:
         """Отправить медиафайл в чат."""
+        import logging
         logger = logging.getLogger(__name__)
 
         if self._session is None or self._session.closed:
@@ -172,7 +172,7 @@ class TelegramHttpClient:
         url = f"{self._base_url}/{method_name}"
 
         logger.info(
-            "🚀 Подготовка send_media: type=%s, method=%s, is_str=%s", media_type, method_name, isinstance(media, str))
+            f"🚀 Подготовка send_media: type={media_type}, method={method_name}, is_str={isinstance(media, str)}")
 
         # 1. СЦЕНАРИЙ: Отправка по file_id (мгновенная)
         if isinstance(media, str):
@@ -183,11 +183,13 @@ class TelegramHttpClient:
 
             if reply_markup:
                 # Если уже строка - оставляем, если словарь - дампим
+                import json
                 payload["reply_markup"] = json.dumps(reply_markup) if isinstance(reply_markup, dict) else reply_markup
 
             logger.info(f"📡 Отправляем JSON-запрос на {url} с payload: {payload}")
 
             try:
+                # ВОТ ЗДЕСЬ ОБЯЗАТЕЛЬНО ДОЛЖЕН БЫТЬ RETURN!
                 async with self._session.post(url, json=payload) as resp:
                     result = await resp.json()
                     logger.info(f"✅ Ответ от Telegram API: {result}")
@@ -197,7 +199,7 @@ class TelegramHttpClient:
                 return {"ok": False, "error": str(e)}
 
         # 2. СЦЕНАРИЙ: Загрузка нового файла (байты)
-
+        from aiohttp import FormData
         logger.info("📦 Загрузка физического файла (байт)...")
 
         data = FormData()
@@ -209,15 +211,16 @@ class TelegramHttpClient:
         if caption:
             data.add_field("caption", caption)
         if reply_markup:
+            import json
             data.add_field("reply_markup", json.dumps(reply_markup) if isinstance(reply_markup, dict) else reply_markup)
 
         try:
             async with self._session.post(url, data=data) as resp:
                 result = await resp.json()
-                logger.info("✅ Ответ от Telegram API (загрузка): %s", result)
+                logger.info(f"✅ Ответ от Telegram API (загрузка): {result}")
                 return result
         except Exception as e:
-            logger.error("❌ Ошибка aiohttp при загрузке файла: %s", e)
+            logger.error(f"❌ Ошибка aiohttp при загрузке файла: {e}")
             return {"ok": False, "error": str(e)}
     # ── Внутренний HTTP-метод ───────────────────────
 

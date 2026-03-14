@@ -1,22 +1,16 @@
 import asyncio
-
 import aio_pika
 import redis.asyncio as aioredis
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.application.lobby_management import (
-    CreateLobbyUseCase,
-    JoinLobbyUseCase,
-    LeaveLobbyUseCase,
-    ReadyUseCase,
+    CreateLobbyUseCase, JoinLobbyUseCase, LeaveLobbyUseCase, ReadyUseCase,
 )
 from src.application.press_button import PressButtonUseCase
 from src.application.select_question import SelectQuestionUseCase
 from src.application.special_events import (
-    CloseFinalStakeUseCase,
-    PlaceStakeUseCase,
-    StartFinalStakeUseCase,
+    CloseFinalStakeUseCase, PlaceStakeUseCase, StartFinalStakeUseCase,
 )
 from src.application.start_game import StartGameUseCase
 from src.application.submit_answer import SubmitAnswerUseCase
@@ -37,13 +31,15 @@ from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.rabbit_rpc import RabbitMQMessageGateway
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.shared.config import AppSettings
+from src.shared.logger import get_logger
 from src.shared.domain_events import (
     ButtonClickEvent,
     CommandEvent,
     DocumentEvent,
+    DomainEvent,
     TextEvent,
 )
-from src.shared.logger import get_logger
+from pydantic import TypeAdapter
 
 logger = get_logger(__name__)
 
@@ -51,7 +47,6 @@ logger = get_logger(__name__)
 event_adapter = TypeAdapter(
     CommandEvent | TextEvent | ButtonClickEvent | DocumentEvent
 )
-
 
 async def _recover_rooms(
     session_repo,
@@ -77,6 +72,10 @@ async def _recover_rooms(
         return
 
     log.info("🔄 Найдено %d незавершённых сессий, проверяем Redis...", len(sessions))
+
+    from src.infrastructure.database.repositories.game_session import (
+        GameSessionRepository,
+    )
 
     for sess in sessions:
         try:
@@ -241,21 +240,20 @@ async def main() -> None:
                     await router.handle_event(event)
                 except ValidationError as e:
                     logger.error("❌ Неверный формат события: %s", e)
-                except Exception:
-                    logger.exception("❌ Ошибка при обработке события")
+                except Exception as e:
+                    logger.exception("❌ Ошибка при обработке события: %s", e)
 
         await queue.consume(process_update)
         
         await asyncio.Event().wait()
 
-    except Exception:
-        logger.exception("❌ Критическая Ошибка в Core")
+    except Exception as e:
+        logger.exception("❌ Критическая Ошибка в Core: %s", e)
     finally:
         await gateway.disconnect()
         await rabbitmq.disconnect()
         if connection:
             await connection.close()
-
 
 if __name__ == "__main__":
     try:

@@ -44,6 +44,7 @@ class SiqParser:
     @staticmethod
     def _parse_xml(xml_bytes: bytes, zf: zipfile.ZipFile, all_files_in_zip: list[str]) -> PackageDTO:
         """Разбор content.xml."""
+
         tree = ET.fromstring(xml_bytes)
 
         # Обход namespaces
@@ -108,49 +109,51 @@ class SiqParser:
                                     q_text += text_value + " "
 
                                 # Обработка медиафайлов
-                                elif elem_type in ["image", "video", "audio", "voice"] and (is_ref or text_value.startswith("@")):
-                                    raw_filename = text_value.removeprefix("@")
-                                    filename = unquote(raw_filename)
+                                elif elem_type in ["image", "video", "audio", "voice"]:
+                                    if is_ref or text_value.startswith("@"):
+                                        raw_filename = text_value[1:] if text_value.startswith("@") else text_value
+                                        filename = unquote(raw_filename)
 
-                                    if elem_type == "image":
-                                        current_media_type = "photo"
-                                        folder = "Images"
-                                    elif elem_type == "video":
-                                        current_media_type = "video"
-                                        folder = "Video"
-                                    else:
-                                        current_media_type = "audio"
-                                        folder = "Audio"
-
-                                    # Берем ПЕРВЫЙ найденный медиафайл (если их в вопросе несколько)
-                                    if media_bytes is None:
-                                        # Ищем файл в архиве. Сначала точное совпадение:
-                                        target_path = f"{folder}/{filename}"
-                                        if target_path in all_files_in_zip:
-                                            # Файл найден идеально
-                                            media_bytes = zf.read(target_path)
-                                            media_filename = filename
-                                            media_type = current_media_type
+                                        if elem_type == "image":
+                                            current_media_type = "photo"
+                                            folder = "Images"
+                                        elif elem_type == "video":
+                                            current_media_type = "video"
+                                            folder = "Video"
                                         else:
-                                            found_fuzzy = False
-                                            # Приводим искомое имя к нижнему регистру для надежности
-                                            safe_target = unquote(filename).lower()
+                                            current_media_type = "audio"
+                                            folder = "Audio"
 
-                                            for real_file in all_files_in_zip:
+                                        # Берем ПЕРВЫЙ найденный медиафайл (если их в вопросе несколько)
+                                        if media_bytes is None:
+                                            # Ищем файл в архиве. Сначала точное совпадение:
+                                            target_path = f"{folder}/{filename}"
+
+                                            if target_path in all_files_in_zip:
+                                                # Файл найден идеально
+                                                media_bytes = zf.read(target_path)
+                                                media_filename = filename
+                                                media_type = current_media_type
+                                            else:
+                                                found_fuzzy = False
+                                                # Приводим искомое имя к нижнему регистру для надежности
+                                                safe_target = unquote(filename).lower()
+
+                                                for real_file in all_files_in_zip:
                                                     # Раскодируем реальное имя из ZIP и тоже в нижний регистр
-                                                safe_real = unquote(real_file).lower()
+                                                    safe_real = unquote(real_file).lower()
 
-                                                # Ищем вхождение (даже частичное)
-                                                if safe_target in safe_real or safe_real.endswith(safe_target):
-                                                    media_bytes = zf.read(real_file)
-                                                    media_filename = real_file.split("/")[-1]
-                                                    media_type = current_media_type
-                                                    found_fuzzy = True
-                                                    break
+                                                    # Ищем вхождение (даже частичное)
+                                                    if safe_target in safe_real or safe_real.endswith(safe_target):
+                                                        media_bytes = zf.read(real_file)
+                                                        media_filename = real_file.split("/")[-1]
+                                                        media_type = current_media_type
+                                                        found_fuzzy = True
+                                                        break
 
-                                            if not found_fuzzy:
-                                                logger.warning(
-                                                    f"Медиафайл '{target_path}' не найден в архиве ни по точному имени, ни через умный поиск!")
+                                                if not found_fuzzy:
+                                                    logger.warning(
+                                                        f"Медиафайл '{target_path}' не найден в архиве ни по точному имени, ни через умный поиск!")
                             q_text = q_text.strip()
                             if not q_text and media_bytes:
                                 q_text = "Внимание на экран:"

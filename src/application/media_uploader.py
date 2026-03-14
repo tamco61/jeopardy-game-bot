@@ -1,6 +1,5 @@
 import asyncio
 import logging
-
 from src.application.parser.dto import PackageDTO, QuestionDTO
 from src.infrastructure.telegram import TelegramHttpClient
 
@@ -43,7 +42,7 @@ class TelegramMediaUploader:
 
         if media_type == "photo" and size_bytes > self.PHOTO_SIZE_LIMIT:
             return None
-        if media_type in ["video", "audio"] and size_bytes > self.FILE_SIZE_LIMIT:
+        elif media_type in ["video", "audio"] and size_bytes > self.FILE_SIZE_LIMIT:
             return None
 
         max_retries = 3
@@ -59,13 +58,14 @@ class TelegramMediaUploader:
                 await asyncio.sleep(3.2)  # Защита от спам-блока (20 сообщений в минуту)
                 return self._extract_file_id(result, media_type)
 
-            if result.get("error_code") == 429:
+            elif result.get("error_code") == 429:
                 retry_after = result.get("parameters", {}).get("retry_after", 5)
                 self._log.warning(f"Flood limit! Ждем {retry_after} сек...")
                 await asyncio.sleep(retry_after)
                 continue
-            self._log.error(f"Ошибка Telegram API: {result}")
-            return None
+            else:
+                self._log.error(f"Ошибка Telegram API: {result}")
+                return None
 
         return None
 
@@ -88,10 +88,11 @@ class TelegramMediaUploader:
             # 4. Для видео, аудио и голосовых
             if media_type in msg:
                 return msg[media_type]["file_id"]
+
+            # Если Telegram прислал что-то вообще неожиданное
             self._log.error(f"Неизвестный формат ответа Telegram. Не могу найти file_id: {tg_response}")
+            return None
 
         except Exception as e:
             self._log.error(f"Ошибка при извлечении file_id: {e}. Ответ Telegram: {tg_response}")
-            return None
-        else:
             return None

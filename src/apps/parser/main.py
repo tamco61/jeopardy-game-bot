@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from src.application.media_uploader import TelegramMediaUploader
 from src.infrastructure.database.base import build_engine, build_session_factory
@@ -52,8 +53,8 @@ async def main() -> None:
 
     except asyncio.CancelledError:
         logger.info("🛑 Остановка воркера (получен сигнал отмены)...")
-    except Exception:
-        logger.exception("💥 Критическая ошибка в работе воркера")
+    except Exception as e:
+        logger.exception("💥 Критическая ошибка в работе воркера: %s", e)
     finally:
         logger.info("🧹 Очистка ресурсов...")
 

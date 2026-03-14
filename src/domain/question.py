@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum
 
 from pydantic import BaseModel
 
 
-class QuestionType(StrEnum):
+class QuestionType(str, Enum):
     """Тип вопроса."""
 
     NORMAL = "normal"
@@ -22,7 +22,7 @@ class Question(BaseModel):
     theme_name: str
     text: str
     answer: str
-    value: int = 100  # стоимость (100, 200, …)
+    value: int = 100 # стоимость (100, 200, …)
     question_type: QuestionType = QuestionType.NORMAL
 
     media_type: str | None = None

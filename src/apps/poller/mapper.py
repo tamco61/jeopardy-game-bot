@@ -1,14 +1,14 @@
+import json
+import logging
+from typing import Optional
+
+from pydantic import ValidationError
 from src.shared.domain_events import (
-    ButtonClickEvent,
-    CommandEvent,
-    DocumentEvent,
-    DomainEvent,
-    TextEvent,
+    CommandEvent, TextEvent, ButtonClickEvent, DocumentEvent, DomainEvent
 )
 from src.shared.logger import get_logger
 
 logger = get_logger(__name__)
-
 
 class EventMapper:
     """Адаптер сырых JSON объектов Telegram в абстрактные доменные события."""
@@ -18,8 +18,7 @@ class EventMapper:
         """Преврящает update от телеграма во внутренние DomainEvent.
         Возвращает список, так как теоретически апдейт может не содержать интересующих нас событий,
         либо мы можем разделять один апдейт на несколько логических пайплайнов (крайне редко).
-        Обычно возвращается список из 1 элемента.
-        """
+        Обычно возвращается список из 1 элемента."""
         events = []
         
         # 1. Message
@@ -39,7 +38,7 @@ class EventMapper:
         return events
 
     @staticmethod
-    def _parse_message(message: dict) -> DomainEvent | None:
+    def _parse_message(message: dict) -> Optional[DomainEvent]:
         chat = message.get("chat", {})
         chat_id = chat.get("id", 0)
         is_private = chat.get("type", "") == "private"
@@ -85,7 +84,8 @@ class EventMapper:
                 command=cmd,
                 args=args
             )
-        return TextEvent(
+        else:
+            return TextEvent(
                 source="telegram",
                 chat_id=chat_id,
                 room_id=room_id,
@@ -97,7 +97,7 @@ class EventMapper:
             )
 
     @staticmethod
-    def _parse_callback(callback: dict) -> DomainEvent | None:
+    def _parse_callback(callback: dict) -> Optional[DomainEvent]:
         user = callback.get("from", {})
         user_tg_id = int(user.get("id", 0))
         player_id = str(user_tg_id)

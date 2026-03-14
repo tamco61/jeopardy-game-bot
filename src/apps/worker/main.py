@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+from typing import Any
 
 import aio_pika
 from pydantic import ValidationError
@@ -10,7 +12,6 @@ from src.shared.logger import get_logger
 from src.shared.messages import OutgoingTelegramCommand
 
 logger = get_logger(__name__)
-
 
 async def main():
     settings = AppSettings()
@@ -65,7 +66,7 @@ async def main():
                         logger.warning("⚠️ Команда %s отклонена Telegram (400): %s", cmd.method, error_str)
                     else:
                         # Если это что-то другое (ошибка сети, JSON и т.д.) — логируем по полной
-                        logger.exception("❌ Критическая ошибка при выполнении команды %s", cmd.method)
+                        logger.exception("❌ Критическая ошибка при выполнении команды %s: %s", cmd.method, e)
 
                     # Формируем ответ для игры, чтобы она знала: команда НЕ выполнена
                     err_msg = {"ok": False, "error": error_str}
@@ -91,7 +92,6 @@ async def main():
         await telegram_client.close()
         if connection:
             await connection.close()
-
 
 if __name__ == "__main__":
     try:

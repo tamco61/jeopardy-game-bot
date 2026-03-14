@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum
 
 from pydantic import BaseModel, Field
 
@@ -19,7 +19,7 @@ from src.domain.player import Player
 from src.domain.question import Question, QuestionType
 
 
-class Phase(StrEnum):
+class Phase(str, Enum):
     """Фазы (состояния) FSM игровой комнаты."""
 
     LOBBY = "lobby"
@@ -86,7 +86,7 @@ class Room(BaseModel):
     final_question: Question | None = None
     final_stakes: dict[str, int] = Field(default_factory=dict)
     final_answers: dict[str, str] = Field(default_factory=dict)
-    final_verdicts: dict[str, bool] = Field(default_factory=dict)  # manual verdicts from host
+    final_verdicts: dict[str, bool] = Field(default_factory=dict) # manual verdicts from host
 
     # Пауза — запоминаем, куда вернуться
     paused_from: Phase | None = Field(default=None, repr=False)
@@ -134,7 +134,8 @@ class Room(BaseModel):
         if not self.selecting_player_id and self.host_id:
             self.selecting_player_id = self.host_id
         elif not self.selecting_player_id and self.players:
-            self.selecting_player_id = next(iter(self.players))
+            # todo: неявная зависимость от порядка вставки dict
+            self.selecting_player_id = list(self.players.keys())[0]
 
     # ────────────────────────────────────────────────
     #  BOARD_VIEW -> READING / SPECIAL_EVENT

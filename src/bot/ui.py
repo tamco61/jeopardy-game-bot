@@ -10,8 +10,8 @@ from src.bot.callback import (
     SelectPackCallback,
     SelectQuestionCallback,
     SkipRoundCallback,
-    StakeCallback,
     StartGameCallback,
+    StakeCallback,
 )
 from src.domain.room import Phase, Room
 from src.infrastructure.rabbit import RabbitMQPublisher
@@ -86,7 +86,7 @@ class JeopardyUI:
 
         # Пытаемся редактировать предыдущее сообщение
         if room.last_board_message_id:
-            logger.info("🔄 Попытка обновить табло %s...", room.last_board_message_id)
+            logger.info(f"🔄 Попытка обновить табло {room.last_board_message_id}...")
 
             # 1. Сначала пробуем стандартный edit_message_text
             res = await self._tg.edit_message_text(
@@ -98,7 +98,7 @@ class JeopardyUI:
 
             # Если воркер вернул ошибку (например, 400 Bad Request, так как это фото)
             if not res or not res.get("ok"):
-                logger.warning("⚠️ edit_message_text не подошел для %s, пробуем Caption...", room.last_board_message_id)
+                logger.warning(f"⚠️ edit_message_text не подошел для {room.last_board_message_id}, пробуем Caption...")
 
                 # 2. Пробуем ПЛАН Б: обновить подпись к медиа
                 res = await self._tg.edit_message_caption(
@@ -110,11 +110,11 @@ class JeopardyUI:
 
             # Если один из способов редактирования сработал
             if res and res.get("ok"):
-                logger.info("✅ Табло успешно обновлено.")
+                logger.info(f"✅ Табло {room.last_board_message_id} успешно обновлено.")
                 return None  # Сообщение на месте, ID не меняем
 
             # Если оба способа провалились (сообщение удалено или слишком старое)
-            logger.warning("❌ Не удалось обновить табло %s. Шлем новое.", room.last_board_message_id)
+            logger.warning(f"❌ Не удалось обновить табло {room.last_board_message_id}. Шлем новое.")
             # Попытаемся удалить старое на всякий случай, чтобы не мусорить
             await self.delete_message(chat_id, room.last_board_message_id)
             room.last_board_message_id = None
@@ -191,6 +191,7 @@ class JeopardyUI:
             media_file_id: str | None = None,
     ) -> int | None:
         """Показать текст вопроса в чате. Возвращает message_id."""
+
         await self._broadcast_ui(room_id, "question_opened", {
             "text": text,
             "value": value,
@@ -207,6 +208,11 @@ class JeopardyUI:
                 # Обрезаем подпись до 1024 символов (лимит Telegram для caption)
                 if len(caption_text) > 1024:
                     caption_text = caption_text[:1020] + "..."
+
+                # --- ДОБАВЬ ЭТИ ДВЕ СТРОЧКИ ---
+                logger.warning(f"Тип клиента: {type(self._tg)}")
+                logger.warning(f"У клиента есть send_media: {hasattr(self._tg, 'send_media')}")
+                # ------------------------------
 
                 sent = await self._tg.send_media(
                     chat_id=chat_id,
@@ -225,13 +231,13 @@ class JeopardyUI:
 
             # 🚨 ЛОГИРУЕМ ОШИБКИ TELEGRAM АПИ!
             if not sent or not sent.get("ok"):
-                logger.error("❌ Ошибка Telegram API при отправке вопроса: %s", sent)
+                logger.error(f"❌ Ошибка Telegram API при отправке вопроса: {sent}")
                 return None
 
             return sent["result"]["message_id"]
 
-        except Exception:
-            logger.exception("❌ Критическая ошибка в show_question")
+        except Exception as e:
+            logger.exception(f"❌ Критическая ошибка в show_question: {e}")
             return None
 
     async def show_verdict(
@@ -396,7 +402,9 @@ class JeopardyUI:
 
     async def render_pack_selection(self, chat_id: int, packs: list[dict], room_id: str) -> None:
         """Отрисовывает меню выбора пакета вопросов."""
-        keyboard = [{"text": p["title"], "callback_data": SelectPackCallback(room_id=str(room_id), pack_id=p['id']).pack()} for p in packs]
+        keyboard = []
+        for p in packs:
+            keyboard.append([{"text": p["title"], "callback_data": SelectPackCallback(room_id=str(room_id), pack_id=p['id']).pack()}])
         
         await self._tg.send_message(
             chat_id,
@@ -470,10 +478,9 @@ class JeopardyUI:
                     text=text,
                     reply_markup=keyboard,
                 )
+                return None
             except aiohttp.ClientError as e:
                 logger.debug("Не удалось отредактировать лобби-сообщение: %s", e)
-            else:
-                return None
 
         sent = await self._tg.send_message(chat_id, text, reply_markup=keyboard)
         if sent and "result" in sent:
