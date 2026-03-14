@@ -1,7 +1,7 @@
 """Репозиторий для чтения/записи игровых сессий в PostgreSQL."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -131,7 +131,7 @@ class GameSessionRepository:
 
             model.status = "finished"
             model.phase = room.phase.value
-            model.finished_at = datetime.now(timezone.utc)
+            model.finished_at = datetime.now(UTC)
 
             existing = {p.player_id: p for p in model.players}
             for player in room.players.values():
@@ -187,7 +187,7 @@ class GameSessionRepository:
                 is_ready=True,
             )
 
-        room = Room(
+        return Room(
             room_id=sess.room_id,
             chat_id=sess.chat_id,
             phase=Phase.BOARD_VIEW,
@@ -203,4 +203,3 @@ class GameSessionRepository:
             last_board_message_id=sess.last_board_message_id,
             players=players,
         )
-        return room

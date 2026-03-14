@@ -1,21 +1,23 @@
 import asyncio
 import json
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
 import aio_pika
+
 from src.shared.interfaces import MessageGateway
 from src.shared.messages import OutgoingTelegramCommand
+
 
 class RabbitMQMessageGateway(MessageGateway):
     """Реализация MessageGateway через RPC поверх RabbitMQ."""
 
     def __init__(self, rabbitmq_url: str):
         self._url = rabbitmq_url
-        self._connection: Optional[aio_pika.Connection] = None
-        self._channel: Optional[aio_pika.Channel] = None
-        self._callback_queue: Optional[aio_pika.Queue] = None
-        self._futures: Dict[str, asyncio.Future] = {}
+        self._connection: aio_pika.Connection | None = None
+        self._channel: aio_pika.Channel | None = None
+        self._callback_queue: aio_pika.Queue | None = None
+        self._futures: dict[str, asyncio.Future] = {}
 
     async def connect(self):
         """Установить соединение и запустить consumer для RPC-ответов."""
@@ -48,7 +50,7 @@ class RabbitMQMessageGateway(MessageGateway):
                 except Exception as e:
                     future.set_exception(e)
 
-    async def _call(self, method: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    async def _call(self, method: str, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Отправляет RPC-запрос и ждёт ответа."""
         if not self._channel or not self._callback_queue:
             raise RuntimeError("Gateway is not connected")
@@ -86,8 +88,8 @@ class RabbitMQMessageGateway(MessageGateway):
         self,
         chat_id: int,
         text: str,
-        reply_markup: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         return await self._call("send_message", kwargs={
             "chat_id": chat_id, "text": text, "reply_markup": reply_markup
         })
@@ -97,9 +99,9 @@ class RabbitMQMessageGateway(MessageGateway):
             chat_id: int | str,
             media_type: str,
             media: str,  # Сюда прилетит наш telegram_file_id
-            caption: Optional[str] = None,
-            reply_markup: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            caption: str | None = None,
+            reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Отправить RPC-запрос на публикацию медиафайла."""
         return await self._call("send_media", kwargs={
             "chat_id": chat_id,
@@ -114,8 +116,8 @@ class RabbitMQMessageGateway(MessageGateway):
         chat_id: int,
         message_id: int,
         text: str,
-        reply_markup: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         return await self._call("edit_message_text", kwargs={
             "chat_id": chat_id, "message_id": message_id, "text": text, "reply_markup": reply_markup
         })
@@ -125,8 +127,8 @@ class RabbitMQMessageGateway(MessageGateway):
             chat_id: int,
             message_id: int,
             caption: str,
-            reply_markup: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Редактировать подпись к медиафайлу."""
         return await self._call("edit_message_caption", kwargs={
             "chat_id": chat_id,
@@ -139,8 +141,8 @@ class RabbitMQMessageGateway(MessageGateway):
             self,
             chat_id: int,
             message_id: int,
-            reply_markup: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Редактировать ТОЛЬКО клавиатуру (подходит и для текста, и для медиа)."""
         return await self._call("edit_message_reply_markup", kwargs={
             "chat_id": chat_id,
@@ -150,16 +152,16 @@ class RabbitMQMessageGateway(MessageGateway):
 
     async def answer_callback_query(
         self, callback_query_id: str, text: str = "", show_alert: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return await self._call("answer_callback_query", kwargs={
             "callback_query_id": callback_query_id, "text": text, "show_alert": show_alert
         })
 
-    async def get_file(self, file_id: str) -> Dict[str, Any]:
+    async def get_file(self, file_id: str) -> dict[str, Any]:
         return await self._call("get_file", kwargs={"file_id": file_id})
 
     async def download_file(self, file_path: str, destination: str) -> None:
         await self._call("download_file", kwargs={"file_path": file_path, "destination": destination})
 
-    async def delete_message(self, chat_id: int, message_id: int) -> Dict[str, Any]:
+    async def delete_message(self, chat_id: int, message_id: int) -> dict[str, Any]:
         return await self._call("delete_message", kwargs={"chat_id": chat_id, "message_id": message_id})

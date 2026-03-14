@@ -1,6 +1,8 @@
 import asyncio
 import os
 
+from anyio import Path
+
 from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.bot.router import command, document
 from src.infrastructure.rabbit import RabbitMQPublisher
@@ -45,7 +47,6 @@ class AdminHandler:
         if not caption.startswith("/upload_pack") or not file_name.endswith(".siq"):
             return
 
-
         try:
             file_info = await self._tg.get_file(file_id)
             if not file_info.get("ok"):
@@ -58,15 +59,15 @@ class AdminHandler:
             # Создаём директорию асинхронно
             await asyncio.to_thread(os.makedirs, "data/uploads", exist_ok=True)
 
+            base_dir = await Path("data/uploads").absolute()
+            local_path = await (base_dir / f"{file_id}.siq").absolute()
             # Защита от path traversal
-            base_dir = os.path.abspath("data/uploads")
-            local_path = os.path.abspath(os.path.join(base_dir, f"{file_id}.siq"))
-            if not local_path.startswith(base_dir):
+            if not str(local_path).startswith(str(base_dir)):
                 await self._tg.send_message(chat_id, "Недопустимое имя файла.")
                 return
 
             await self._tg.send_message(chat_id, "Скачиваю пакет...")
-            await self._tg.download_file(file_path, local_path)
+            await self._tg.download_file(file_path, str(local_path))
 
             await self._rabbit.publish("siq_parse_tasks", {"file_path": local_path})
             await self._tg.send_message(chat_id, "Пакет успешно загружен и отправлен на обработку!")

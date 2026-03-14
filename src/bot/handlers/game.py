@@ -17,7 +17,6 @@ from src.application.special_events import (
 )
 from src.application.start_game import StartGameDTO, StartGameUseCase
 from src.application.submit_answer import SubmitAnswerDTO, SubmitAnswerUseCase
-from src.bot.router import command, callback, message
 from src.bot.callback import (
     FinalCloseStakesCallback,
     FinalRevealCallback,
@@ -30,6 +29,7 @@ from src.bot.callback import (
     StartGameCallback,
     VerdictCallback,
 )
+from src.bot.router import callback, command, message
 from src.bot.ui import JeopardyUI
 from src.domain.room import Phase, Room
 from src.infrastructure.database.repositories.game_session import (
@@ -43,6 +43,7 @@ from src.infrastructure.redis_repo import RedisStateRepository
 from src.shared.logger import get_logger
 
 logger = get_logger(__name__)
+
 
 class GameHandler:
     """Обработчик игрового процесса (старт, выбор вопроса, ответы, вердикты)."""
@@ -181,7 +182,6 @@ class GameHandler:
                         "callback_data": PressButtonCallback(chat_id=chat_id).pack(),
                     }]]
                 }
-                print(res)
                 media_type = getattr(res, "media_type")
                 media = getattr(res, "telegram_file_id")
 
@@ -223,8 +223,8 @@ class GameHandler:
 
         except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error("Ошибка при выборе вопроса: %s", e)
-        except Exception as e:
-            logger.exception("Критическая ошибка при отрисовке вопроса: %s", e)
+        except Exception:
+            logger.exception("Критическая ошибка при отрисовке вопроса")
         finally:
             await self._ui.answer_callback_query(cb_id)
 
@@ -301,8 +301,10 @@ class GameHandler:
 
     @message()
     async def handle_submit_answer(self, chat_id: int, room_id: str, player_id: str, username: str, text: str, room: Room, is_private: bool) -> None:
-        if not text or text.startswith("/"): return
-        if not room or room.phase not in (Phase.ANSWERING, Phase.FINAL_ANSWER): return
+        if not text or text.startswith("/"):
+            return
+        if not room or room.phase not in (Phase.ANSWERING, Phase.FINAL_ANSWER):
+            return
 
         dto = SubmitAnswerDTO(room_id=room_id, player_id=player_id, answer=text)
         try:
@@ -313,7 +315,8 @@ class GameHandler:
 
             await self._submit_answer.execute(dto)
             room = await self._state_repo.get_room(room_id)
-            if not room: return
+            if not room:
+                return
 
             if room.phase == Phase.ANSWERING:
                 if not room.host_telegram_id:
@@ -386,7 +389,8 @@ class GameHandler:
     async def handle_verdict(self, chat_id: int, message_id: int, data: VerdictCallback, cb_id: str) -> None:
         room_id = data.room_id
         room = await self._state_repo.get_room(room_id)
-        if not room: return
+        if not room:
+            return
 
         if room.phase == Phase.ANSWERING:
             verdict, target_player_id = data.verdict, data.target_player_id
@@ -506,7 +510,8 @@ class GameHandler:
     async def _activate_button(self, room_id: str, chat_id: int, message_id: int, delay: float) -> None:
         await asyncio.sleep(delay)
         room = await self._state_repo.get_room(room_id)
-        if not room or room.phase != Phase.READING: return
+        if not room or room.phase != Phase.READING:
+            return
         room.activate_buzzer()
         await self._state_repo.save_room(room)
 
@@ -591,19 +596,21 @@ class GameHandler:
                 logger.info("Восстановлен таймер ответа для комнаты %s", room.room_id)
 
     @callback(SkipRoundCallback)
-    async def handle_skip_round(self, chat_id: int, room_id: str, player_id: str, data: SkipRoundCallback = None, cb_id: str = None) -> None:
+    async def handle_skip_round(self, chat_id: int, room_id: str, player_id: str, data: SkipRoundCallback | None = None, cb_id: str | None = None) -> None:
         """Принудительный пропуск текущего раунда (только для хоста)."""
         if data:
             room_id = data.room_id
 
         room = await self._state_repo.get_room(room_id)
         if not room:
-            if cb_id: await self._ui.answer_callback_query(cb_id)
+            if cb_id:
+                await self._ui.answer_callback_query(cb_id)
             return
 
         if room.host_id != player_id:
             await self._ui.send_message(chat_id, "⚠️ Только ведущий (HOST) может пропустить раунд.")
-            if cb_id: await self._ui.answer_callback_query(cb_id)
+            if cb_id:
+                await self._ui.answer_callback_query(cb_id)
             return
 
         await self._ui.send_temporary(room.chat_id, "⏩ Ведущий пропустил раунд!")
@@ -651,7 +658,8 @@ class GameHandler:
     async def handle_final_start_stakes(self, chat_id: int, data: FinalStartStakesCallback, cb_id: str) -> None:
         room_id = data.room_id
         room = await self._state_repo.get_room(room_id)
-        if not room: return
+        if not room:
+            return
         if room.phase == Phase.FINAL_ROUND:
             try:
                 await self._start_final_stake.execute(room_id)
@@ -697,14 +705,15 @@ class GameHandler:
     async def handle_final_close_stakes(self, chat_id: int, data: FinalCloseStakesCallback, cb_id: str) -> None:
         room_id = data.room_id
         room = await self._state_repo.get_room(room_id)
-        if not room: return
+        if not room:
+            return
         if room.phase == Phase.FINAL_STAKE:
             try:
                 await self._close_final_stake.execute(room_id)
                 
                 # Показываем текст финального вопроса всем
                 q_text = room.final_question.text if room.final_question else "???"
-                q_val = room.final_question.value if room.final_question else 0
+                # q_val = room.final_question.value if room.final_question else 0
                 
                 await self._ui.send_message(
                     room.chat_id,
@@ -741,7 +750,8 @@ class GameHandler:
         await self._state_repo.release_button(room.room_id)
 
         # 2. Проверяем, закончился ли текущий раунд
-        if not room.current_round_id: return
+        if not room.current_round_id:
+            return
         board_data = await self._theme_repo.get_board_for_round(room.current_round_id)
         all_q_ids = [q["id"] for theme in board_data for q in theme["questions"]]
 
@@ -750,7 +760,8 @@ class GameHandler:
             return
 
         # 3. Переход к следующему раунду
-        if not room.package_id: return
+        if not room.package_id:
+            return
         rounds: list[dict] = await self._round_repo.get_rounds_by_package(room.package_id)
         idx = next((i for i, r in enumerate(rounds) if r["id"] == room.current_round_id), -1)
 
@@ -797,7 +808,8 @@ class GameHandler:
         """Хост оглашает результаты финала."""
         room_id = data.room_id
         room = await self._state_repo.get_room(room_id)
-        if not room: return
+        if not room:
+            return
         if room.phase == Phase.FINAL_ANSWER:
             # Считаем итоги в домене
             results = room.resolve_final()

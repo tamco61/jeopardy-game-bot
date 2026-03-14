@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.infrastructure.database.models import RoundModel
 
+
 class RoundRepository:
     """Работа с раундами игры через Postgres."""
 

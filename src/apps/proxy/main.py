@@ -1,33 +1,38 @@
-import asyncio
 import json
-import logging
 import os
-from typing import Dict, List, Set
 import uuid
-from pathlib import Path
-from fastapi import File, UploadFile, HTTPException, BackgroundTasks
-
+from typing import Annotated
 
 import aio_pika
 import redis.asyncio as aioredis
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from anyio import Path, open_file
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from src.infrastructure.redis_repo import RedisStateRepository
 from src.shared.config import AppSettings
 from src.shared.domain_events import ButtonClickEvent, CommandEvent, TextEvent
 from src.shared.logger import get_logger
 from src.shared.messages import WebUIUpdate
-from src.infrastructure.redis_repo import RedisStateRepository
 
 logger = get_logger(__name__)
+
 
 class ConnectionManager:
     """Управление активными WebSocket-соединениями."""
     def __init__(self):
         # room_id -> list of websockets
-        self.active_connections: Dict[str, List[WebSocket]] = {}
+        self.active_connections: dict[str, list[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, room_id: str):
         await websocket.accept()
@@ -54,6 +59,7 @@ class ConnectionManager:
                 except Exception as e:
                     logger.error("❌ Ошибка отправки в WS: %s", e)
 
+
 manager = ConnectionManager()
 app = FastAPI(title="Jeopardy API Gateway (Proxy)")
 
@@ -69,6 +75,7 @@ rabbit_connection = None
 rabbit_channel = None
 redis_client = None
 state_repo = None
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -95,14 +102,15 @@ async def startup_event():
                     await manager.broadcast(update.room_id, update.model_dump())
                 except ValidationError as e:
                     logger.error("❌ Неверный формат WebUIUpdate: %s", e)
-                except Exception as e:
-                    logger.exception("❌ Ошибка при трансляции обновления: %s", e)
+                except Exception:
+                    logger.exception("❌ Ошибка при трансляции обновления")
 
         await queue.consume(process_ui_update)
         logger.info("✅ Подключено к RabbitMQ и Redis")
         
     except Exception as e:
         logger.error("❌ Ошибка подключения: %s", e)
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -116,10 +124,9 @@ async def shutdown_event():
 @app.post("/upload-pack")
 async def upload_siq_pack(
         background_tasks: BackgroundTasks,
-        file: UploadFile = File(...)
+        file: Annotated[UploadFile, File()]
 ):
-    """
-    Эндпоинт для загрузки .siq файлов.
+    """Эндпоинт для загрузки .siq файлов.
     Принимает файл, сохраняет на диск и ставит задачу парсеру в очередь.
     """
     if not file.filename.endswith('.siq'):
@@ -127,7 +134,7 @@ async def upload_siq_pack(
 
     # Создаем папку для временных файлов, если её нет
     temp_dir = Path("temp_uploads")
-    temp_dir.mkdir(exist_ok=True)
+    await temp_dir.mkdir(exist_ok=True)
 
     # Генерируем уникальное имя, чтобы файлы с одинаковыми названиями не перезаписали друг друга
     safe_filename = f"{uuid.uuid4().hex}_{file.filename}"
@@ -136,11 +143,11 @@ async def upload_siq_pack(
     # Сохраняем файл асинхронно
     try:
         contents = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(contents)
+        async with await open_file(file_path, "wb") as f:
+           await f.write(contents)
     except Exception as e:
         logger.error("❌ Ошибка при сохранении загруженного файла: %s", e)
-        raise HTTPException(status_code=500, detail="Ошибка при сохранении файла на сервере.")
+        raise HTTPException(status_code=500, detail="Ошибка при сохранении файла на сервере.") from e
 
     # Отправляем задачу в RabbitMQ
     if rabbit_channel:
@@ -160,7 +167,7 @@ async def upload_siq_pack(
             # Если RabbitMQ упал, удаляем файл, чтобы не засорять диск
             if file_path.exists():
                 file_path.unlink()
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера (брокер сообщений недоступен).")
+            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера (брокер сообщений недоступен).") from e
     else:
         logger.error("❌ Канал RabbitMQ не инициализирован.")
         raise HTTPException(status_code=500, detail="Сервис временно недоступен.")
@@ -171,9 +178,11 @@ async def upload_siq_pack(
         "filename": file.filename
     }
 
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
 
 @app.get("/rooms")
 async def list_rooms():
@@ -192,6 +201,7 @@ async def list_rooms():
         for r in rooms
         if r.phase != "results"
     ]
+
 
 @app.websocket("/ws/{room_id}/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str):
@@ -249,14 +259,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
                     player_id=player_id,
                     username=data.get("username", "Web Player"),
                     callback_id=f"web_select_{room_id}",
-                    data=f"sq:{room_id}:{q_id}", # Формат SelectQuestionCallback
+                    data=f"sq:{room_id}:{q_id}",  # Формат SelectQuestionCallback
                     message_id=0
                 )
             elif data.get("type") == "submit_answer":
                 text = data.get("text", "")
                 event = TextEvent(
                     source="web",
-                    chat_id=0, # Will be filled from room state later if needed, but TextEvent is handled by EventRouter
+                    chat_id=0,  # Will be filled from room state later if needed, but TextEvent is handled by EventRouter
                     room_id=room_id,
                     player_id=player_id,
                     username=data.get("username", player_id),
@@ -289,12 +299,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
         logger.error("❌ Ошибка WebSocket: %s", e)
         manager.disconnect(websocket, room_id)
 
+
 # Раздача статики (всегда в конце, чтобы не мешать API/WS)
 static_path = os.path.join(os.path.dirname(__file__), "static")
 if not os.path.exists(static_path):
     os.makedirs(static_path, exist_ok=True)
 
 app.mount("/", StaticFiles(directory=static_path, html=True), name="static")
+
 
 if __name__ == "__main__":
     import uvicorn

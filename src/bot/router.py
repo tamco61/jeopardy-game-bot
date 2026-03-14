@@ -1,10 +1,12 @@
 import inspect
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from src.bot.callback import CallbackBase
 from src.shared.logger import get_logger
 
 logger = get_logger(__name__)
+
 
 def command(name: str) -> Callable:
     """Декоратор для регистрации обработчика текстовой команды (начинается с /)."""
@@ -12,6 +14,7 @@ def command(name: str) -> Callable:
         func.__command__ = name
         return func
     return decorator
+
 
 def callback(callback_class: type[CallbackBase] | str) -> Callable:
     """Декоратор для регистрации обработчика callback_query по префиксу или классу."""
@@ -24,6 +27,7 @@ def callback(callback_class: type[CallbackBase] | str) -> Callable:
         return func
     return decorator
 
+
 def message() -> Callable:
     """Декоратор для регистрации обработчика обычных текстовых сообщений (стейт-машина)."""
     def decorator(func: Callable) -> Callable:
@@ -31,12 +35,14 @@ def message() -> Callable:
         return func
     return decorator
 
+
 def document() -> Callable:
     """Декоратор для обработки документов."""
     def decorator(func: Callable) -> Callable:
         func.__document__ = True
         return func
     return decorator
+
 
 class Router:
     """Реестр обработчиков и инжектор зависимостей для вызовов."""

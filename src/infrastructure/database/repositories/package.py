@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.application.parser.dto import PackageDTO
@@ -82,7 +82,6 @@ class PackageRepository:
 
     async def delete_package(self, package_id: int) -> bool:
         """Удалить пакет (rounds, themes, questions удалятся каскадно)."""
-        from sqlalchemy import delete
         async with self._session_factory() as session:
             stmt = delete(PackageModel).where(PackageModel.id == package_id)
             result = await session.execute(stmt)

@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Protocol
+
 
 class MessageGateway(Protocol):
     """Шлюз для отправки сообщений в Telegram (через HTTP или RPC)."""
@@ -7,8 +8,8 @@ class MessageGateway(Protocol):
         self,
         chat_id: int,
         text: str,
-        reply_markup: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         ...
 
     async def send_media(
@@ -16,9 +17,9 @@ class MessageGateway(Protocol):
             chat_id: int | str,
             media_type: str,
             media: str,  # Сюда прилетит наш telegram_file_id
-            caption: Optional[str] = None,
-            reply_markup: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            caption: str | None = None,
+            reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         ...
 
     async def edit_message_caption(
@@ -26,16 +27,16 @@ class MessageGateway(Protocol):
             chat_id: int,
             message_id: int,
             caption: str,
-            reply_markup: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         ...
 
     async def edit_message_reply_markup(
             self,
             chat_id: int,
             message_id: int,
-            reply_markup: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+            reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         ...
 
     async def edit_message_text(
@@ -43,8 +44,8 @@ class MessageGateway(Protocol):
         chat_id: int,
         message_id: int,
         text: str,
-        reply_markup: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         ...
 
     async def answer_callback_query(
@@ -52,14 +53,14 @@ class MessageGateway(Protocol):
         callback_query_id: str,
         text: str = "",
         show_alert: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         ...
 
-    async def get_file(self, file_id: str) -> Dict[str, Any]:
+    async def get_file(self, file_id: str) -> dict[str, Any]:
         ...
 
     async def download_file(self, file_path: str, destination: str) -> None:
         ...
 
-    async def delete_message(self, chat_id: int, message_id: int) -> Dict[str, Any]:
+    async def delete_message(self, chat_id: int, message_id: int) -> dict[str, Any]:
         ...

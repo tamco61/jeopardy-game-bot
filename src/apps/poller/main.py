@@ -1,4 +1,5 @@
 import asyncio
+
 import aio_pika
 import aiohttp
 from pydantic import ValidationError
@@ -9,6 +10,7 @@ from src.shared.config import AppSettings
 from src.shared.logger import get_logger
 
 logger = get_logger(__name__)
+
 
 async def main():
     settings = AppSettings()
@@ -75,12 +77,13 @@ async def main():
             except asyncio.CancelledError:
                 logger.info("🛑 Остановка Poller...")
                 break
-            except Exception as e:
-                logger.exception("❌ Неожиданная ошибка Poller: %s", e)
+            except Exception:
+                logger.exception("❌ Неожиданная ошибка Poller")
                 await asyncio.sleep(5)
     finally:
         await telegram_client.close()
         await connection.close()
+
 
 if __name__ == "__main__":
     try:

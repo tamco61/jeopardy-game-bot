@@ -7,10 +7,10 @@ from typing import Any
 
 from anyio import Path
 
+from src.application.media_uploader import TelegramMediaUploader
 from src.application.parser.siq_parser import SiqParser
 from src.infrastructure.database.repositories.package import PackageRepository
 from src.workers.base import BaseWorker
-from src.application.media_uploader import TelegramMediaUploader
 
 
 class SiqParserWorker(BaseWorker):

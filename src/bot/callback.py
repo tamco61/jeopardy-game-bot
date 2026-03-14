@@ -1,4 +1,4 @@
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from pydantic import BaseModel
 
@@ -11,7 +11,7 @@ class CallbackBase(BaseModel):
     def pack(self) -> str:
         """Собирает строку для кнопки"""
         # Достаем значения всех полей в порядке их объявления, пропуская ClassVar
-        values = [str(getattr(self, field)) for field in self.model_fields.keys()]
+        values = [str(getattr(self, field)) for field in self.model_fields]
         return self.sep.join([self.prefix, *values])
 
     @classmethod
@@ -24,7 +24,7 @@ class CallbackBase(BaseModel):
         # Собираем аргументы по именам полей 
         field_names = list(cls.model_fields.keys())
         # Нужно учитывать, что значений может быть больше (напр. если строка 'prefix:id' и т.д.)
-        kwargs = dict(zip(field_names, parts[1:]))
+        kwargs = dict(zip(field_names, parts[1:], strict=False))
         return cls(**kwargs)
 
 

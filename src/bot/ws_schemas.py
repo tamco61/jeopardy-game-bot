@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class WSEventType(str, Enum):
+class WSEventType(StrEnum):
     """Типы событий WebSocket."""
 
     # Клиент → Сервер

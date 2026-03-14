@@ -15,6 +15,7 @@ from src.shared.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 class EventRouter:
     """Диспетчер входящих абстрактных событий (DomainEvent)."""
 
@@ -62,7 +63,7 @@ class EventRouter:
             "username": event.username,
             "room_id": event.room_id,
             "lobby_dto": lobby_dto,
-            "text": f"{event.command} {event.args}".strip(), # For compatibility if handlers parse text
+            "text": f"{event.command} {event.args}".strip(),  # For compatibility if handlers parse text
         }
 
         if event.command in self.router.commands:
@@ -100,7 +101,7 @@ class EventRouter:
 
     async def _handle_callback(self, event: ButtonClickEvent) -> None:
         kwargs = {
-            "data": event.data, # Может быть переопределено parse()
+            "data": event.data,  # Может быть переопределено parse()
             "cb_id": event.callback_id,
             "chat_id": event.chat_id,
             "message_id": event.message_id,

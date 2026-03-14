@@ -1,7 +1,7 @@
 """Use Cases для спец-ивентов (Аукцион, Ставки на финал)."""
 
 from src.domain.errors import DomainError
-from src.domain.room import Phase, Room
+from src.domain.room import Phase
 from src.infrastructure.redis_repo import RedisStateRepository
 
 
