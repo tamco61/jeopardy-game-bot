@@ -93,6 +93,14 @@ class GameHandler:
             await self._ui.send_message(chat_id, "⚠️ Только ведущий (HOST) может запустить игру.")
             return
 
+        if room and not room.all_ready:
+            await self._ui.send_message(
+                chat_id, 
+                "⚠️ Нельзя начать игру: не все игроки нажали <b>✅ Готов</b> "
+                "или в лобби меньше 2 человек."
+            )
+            return
+
         try:
             packs = await self._package_repo.get_all_packages()
             if not packs:
@@ -112,6 +120,14 @@ class GameHandler:
         if room and room.host_id != player_id:
             await self._ui.answer_callback_query(
                 cb_id, text="⚠️ Только ведущий может запустить игру.", show_alert=True
+            )
+            return
+
+        if room and not room.all_ready:
+            await self._ui.answer_callback_query(
+                cb_id, 
+                text="⚠️ Нельзя начать: не все готовы или мало игроков (мин. 2)", 
+                show_alert=True
             )
             return
         try:
