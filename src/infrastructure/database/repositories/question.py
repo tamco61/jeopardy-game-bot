@@ -64,4 +64,6 @@ class QuestionRepository:
             answer=model.answer,
             value=model.value,
             question_type=QuestionType(model.question_type),
+            media_type=model.media_type,
+            telegram_file_id=model.telegram_file_id,
         )

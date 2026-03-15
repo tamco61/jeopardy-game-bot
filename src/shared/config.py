@@ -22,10 +22,15 @@ class AppSettings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str = ""
+    storage_chat_id: int | str = -5165779152  # ID чата для хранения медиафайлов
 
     # App
     debug: bool = False
     log_level: str = "INFO"
+
+    # Admin Auth
+    admin_user: str = "admin"
+    admin_password: str = "admin"
 
     @field_validator("telegram_bot_token")
     @classmethod

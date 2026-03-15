@@ -1,4 +1,5 @@
 import asyncio
+import html
 
 import aiohttp
 
@@ -33,7 +34,7 @@ class JeopardyUI:
         """Отправить обновление в RabbitMQ для трансляции на Web (Proxy)."""
         if not self._rabbit:
             return
-        
+        # todo: обработка медиа
         update = WebUIUpdate(
             room_id=room_id,
             event_type=event_type,
@@ -44,7 +45,7 @@ class JeopardyUI:
         except Exception as e:
             logger.error("❌ Ошибка бродкаста UI: %s", e)
 
-    async def render_board(self, chat_id: int, room: Room, board_data: list[dict]) -> dict | None:
+    async def render_board(self, chat_id: int, room: Room, board_data: list[dict]) -> int | None:
         """Отрисовывает актуальное табло команде через Inline Keyboard."""
         keyboard = []
         for theme in board_data:
@@ -57,16 +58,25 @@ class JeopardyUI:
                 if q["id"] in room.closed_questions:
                     row.append({"text": "❌", "callback_data": "ignore"})
                 else:
-                    row.append({"text": str(q["value"]), "callback_data": SelectQuestionCallback(room_id=str(room.room_id), question_id=q['id']).pack()})
+                    row.append({
+                        "text": str(q["value"]),
+                        "callback_data": SelectQuestionCallback(
+                            room_id=str(room.room_id),
+                            question_id=q['id']
+                        ).pack()
+                    })
             keyboard.append(row)
 
         # Кнопка пропуска раунда (внизу табло)
-        keyboard.append([{"text": "⏩ Пропустить раунд", "callback_data": SkipRoundCallback(room_id=str(room.room_id)).pack()}])
+        keyboard.append([{
+            "text": "⏩ Пропустить раунд",
+            "callback_data": SkipRoundCallback(room_id=str(room.room_id)).pack()
+        }])
 
         scoreboard = self.format_scoreboard(room)
-        text = f"🎮 **Табло: {room.current_round_name} ({room.round_number}/{room.total_rounds})**" + scoreboard
+        text = f"🎮 <b>Табло: {html.escape(room.current_round_name)} ({room.round_number}/{room.total_rounds})</b>" + scoreboard
 
-        # Бродкастим состояние табло для веба — всегда, до отправки в TG
+        # Бродкастим состояние табло для веба
         await self._broadcast_ui(str(room.room_id), "board_updated", {
             "round_name": room.current_round_name,
             "round_number": room.round_number,
@@ -77,38 +87,62 @@ class JeopardyUI:
 
         # Пытаемся редактировать предыдущее сообщение
         if room.last_board_message_id:
-            try:
-                await self._tg.edit_message_text(
+            logger.info(f"🔄 Попытка обновить табло {room.last_board_message_id}...")
+
+            # 1. Сначала пробуем стандартный edit_message_text
+            res = await self._tg.edit_message_text(
+                chat_id=chat_id,
+                message_id=room.last_board_message_id,
+                text=text,
+                reply_markup={"inline_keyboard": keyboard},
+            )
+
+            # Если воркер вернул ошибку (например, 400 Bad Request, так как это фото)
+            if not res or not res.get("ok"):
+                logger.warning(f"⚠️ edit_message_text не подошел для {room.last_board_message_id}, пробуем Caption...")
+
+                # 2. Пробуем ПЛАН Б: обновить подпись к медиа
+                res = await self._tg.edit_message_caption(
                     chat_id=chat_id,
                     message_id=room.last_board_message_id,
-                    text=text,
+                    caption=text[:1024],  # Лимит Telegram для подписи
                     reply_markup={"inline_keyboard": keyboard},
                 )
-                return None  # message_id не изменился
-            except aiohttp.ClientError as e:
-                logger.debug("Не удалось отредактировать табло: %s", e)
-                await self.delete_message(chat_id, room.last_board_message_id)
 
+            # Если один из способов редактирования сработал
+            if res and res.get("ok"):
+                logger.info(f"✅ Табло {room.last_board_message_id} успешно обновлено.")
+                return None  # Сообщение на месте, ID не меняем
+
+            # Если оба способа провалились (сообщение удалено или слишком старое)
+            logger.warning(f"❌ Не удалось обновить табло {room.last_board_message_id}. Шлем новое.")
+            # Попытаемся удалить старое на всякий случай, чтобы не мусорить
+            await self.delete_message(chat_id, room.last_board_message_id)
+            room.last_board_message_id = None
+
+        # ПЛАН В: Отправка нового сообщения (если редактирование не удалось или это старт раунда)
         sent_msg = await self._tg.send_message(
-            chat_id,
-            text,
+            chat_id=chat_id,
+            text=text,
             reply_markup={"inline_keyboard": keyboard},
         )
-        if sent_msg and "result" in sent_msg:
+
+        if sent_msg and sent_msg.get("ok"):
             return sent_msg["result"]["message_id"]
+
         return None
 
     def format_scoreboard(self, room: Room) -> str:
         """Форматирует текущий счет игроков."""
-        scoreboard = "\n\n📊 **Счет:**\n"
+        scoreboard = "\n\n📊 <b>Счет:</b>\n"
         for p in room.players.values():
             prefix = "👉" if p.player_id == room.selecting_player_id else "👤"
-            scoreboard += f"{prefix} {p.display_name}: {p.score}\n"
+            scoreboard += f"{prefix} {html.escape(p.display_name)}: {p.score}\n"
 
         if room.selecting_player_id:
             try:
                 picker = room.get_player(room.selecting_player_id)
-                scoreboard += f"\n🤔 Командует @{picker.username}!"
+                scoreboard += f"\n🤔 Командует {html.escape(picker.display_name)}!"
             except Exception:
                 logger.warning("Не удалось получить выбирающего игрока", exc_info=True)
         return scoreboard
@@ -148,52 +182,116 @@ class JeopardyUI:
         )
 
     async def show_question(
-        self,
-        chat_id: int,
-        room_id: str,
-        text: str,
-        value: int,
-        reply_markup: dict | None = None,
+            self,
+            chat_id: int,
+            room_id: str,
+            text: str,
+            value: int,
+            reply_markup: dict | None = None,
+            media_type: str | None = None,
+            media_file_id: str | None = None,
     ) -> int | None:
         """Показать текст вопроса в чате. Возвращает message_id."""
+
         await self._broadcast_ui(room_id, "question_opened", {
             "text": text,
             "value": value,
+            "media_type": media_type,
+            "media_file_id": media_file_id
         })
-        sent = await self._tg.send_message(
-            chat_id,
-            f"💰 Вопрос за {value}\n\n{text}",
-            reply_markup=reply_markup,
-        )
-        if sent and "result" in sent:
+
+        # Убираем техническую заглушку, чтобы не позориться перед игроками
+        clean_text = html.escape(text) if text != "[Пустой вопрос]" else "Внимание на экран!"
+        caption_text = f"💰 <b>Вопрос за {value}</b>\n\n{clean_text}".strip()
+
+        try:
+            if media_file_id and media_type:
+                # Обрезаем подпись до 1024 символов (лимит Telegram для caption)
+                if len(caption_text) > 1024:
+                    caption_text = caption_text[:1020] + "..."
+
+                # --- ДОБАВЬ ЭТИ ДВЕ СТРОЧКИ ---
+                logger.warning(f"Тип клиента: {type(self._tg)}")
+                logger.warning(f"У клиента есть send_media: {hasattr(self._tg, 'send_media')}")
+                # ------------------------------
+
+                sent = await self._tg.send_media(
+                    chat_id=chat_id,
+                    media_type=media_type,
+                    media=media_file_id,
+                    caption=caption_text,
+                    reply_markup=reply_markup,
+                )
+            else:
+                # Лимит для обычного сообщения 4096 символов
+                sent = await self._tg.send_message(
+                    chat_id=chat_id,
+                    text=caption_text,
+                    reply_markup=reply_markup,
+                )
+
+            # 🚨 ЛОГИРУЕМ ОШИБКИ TELEGRAM АПИ!
+            if not sent or not sent.get("ok"):
+                logger.error(f"❌ Ошибка Telegram API при отправке вопроса: {sent}")
+                return None
+
             return sent["result"]["message_id"]
-        return None
+
+        except Exception as e:
+            logger.exception(f"❌ Критическая ошибка в show_question: {e}")
+            return None
 
     async def show_verdict(
-        self,
-        chat_id: int,
-        room_id: str,
-        verdict_text: str,
-        buzzer_message_id: int | None = None,
+            self,
+            chat_id: int,
+            room_id: str,
+            verdict_text: str,
+            player_answer: str | None = None,
+            buzzer_message_id: int | None = None,
+            delete_after: bool = True,
     ) -> None:
-        """Объявить вердикт ведущего — редактирует buzzer-сообщение."""
+        """Объявить вердикт ведущего."""
         await self._broadcast_ui(room_id, "verdict_announced", {
             "verdict": verdict_text,
+            "player_answer": player_answer,
         })
+
+        verdict_display = f"⚖️ {verdict_text}"
+        if player_answer:
+            verdict_display += f" (ответ: <i>{html.escape(player_answer)}</i>)"
+        edited_successfully = False
+
         if buzzer_message_id:
-            try:
-                await self._tg.edit_message_text(
+            # Пробуем План А: Редактируем текст (для текстовых вопросов)
+            res = await self._tg.edit_message_text(
+                chat_id,
+                buzzer_message_id,
+                verdict_display,
+            )
+
+            # Если не вышло (это фото), пробуем План Б: Редактируем подпись
+            if not res or not res.get("ok"):
+                res = await self._tg.edit_message_caption(
                     chat_id,
                     buzzer_message_id,
-                    f"⚖️ {verdict_text}",
+                    caption=verdict_display,
                 )
-                asyncio.create_task(
-                    self._delete_after(chat_id, buzzer_message_id, delay=4.0)
-                )
-                return
-            except aiohttp.ClientError as e:
-                logger.debug("Не удалось отредактировать buzzer для вердикта: %s", e)
-        await self.send_temporary(chat_id, f"⚖️ {verdict_text}", delay=4.0)
+
+            if res and res.get("ok"):
+                edited_successfully = True
+                if delete_after:
+                    # Запускаем удаление сообщения с вопросом через 4 секунды
+                    asyncio.create_task(
+                        self._delete_after(chat_id, buzzer_message_id, delay=4.0)
+                    )
+
+        # План В: Если отредактировать не удалось ИЛИ ID сообщения не было,
+        # только тогда шлем отдельное временное сообщение
+        if not edited_successfully:
+            if delete_after:
+                await self.send_temporary(chat_id, verdict_display, delay=4.0)
+            else:
+                await self.send_message(chat_id, verdict_display)
 
     async def delete_message(self, chat_id: int, message_id: int) -> None:
         """Тихо удалить сообщение (игнорирует ошибки)."""
@@ -220,11 +318,22 @@ class JeopardyUI:
         except asyncio.CancelledError:
             pass
 
-    async def render_buzzer(self, chat_id: int, room_id: str, message_id: int, text: str = "Жмите кнопку!") -> None:
-        """Восстановить кнопку ответа на сообщении."""
+    async def render_buzzer(self, chat_id: int, room_id: str, message_id: int) -> None:
+        """Активировать кнопку ответа на сообщении (без изменения текста)."""
         await self._broadcast_ui(room_id, "buzzer_activated", {})
-        markup = {"inline_keyboard": [[{"text": "🟢 Ответить", "callback_data": PressButtonCallback(chat_id=chat_id).pack()}]]}
-        await self._tg.edit_message_text(chat_id, message_id, text, reply_markup=markup)
+
+        markup = {
+            "inline_keyboard": [[
+                {"text": "🟢 Ответить", "callback_data": PressButtonCallback(chat_id=chat_id).pack()}
+            ]]
+        }
+
+        # Меняем ТОЛЬКО клавиатуру! Текст вопроса/картинка остаются на месте.
+        await self._tg.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=markup
+        )
 
     async def render_answering_view(self, room_id: str, player_id: str, name: str) -> None:
         """Уведомить веб-клиентов о начале ввода ответа."""
@@ -236,7 +345,7 @@ class JeopardyUI:
     async def render_results(self, chat_id: int, room: Room) -> str:
         """Показать финальные результаты игры и вернуть текст для архива."""
         scoreboard = self.format_scoreboard(room)
-        text = "🏆 **ИГРА ОКОНЧЕНА!** 🏆\n" + scoreboard
+        text = "🏆 <b>ИГРА ОКОНЧЕНА!</b> 🏆\n" + scoreboard
         await self._tg.send_message(chat_id, text)
         await self._broadcast_ui(str(room.room_id), "game_finished", {
             "scores": [
@@ -273,6 +382,8 @@ class JeopardyUI:
                 await self._broadcast_ui(room_id, "question_opened", {
                     "text": room.current_question.text,
                     "value": room.current_question.value,
+                    "media_type": room.current_question.media_type,
+                    "media_file_id": room.current_question.media_file_id,
                 })
             if room.phase == Phase.WAITING_FOR_PUSH:
                 await self._broadcast_ui(room_id, "buzzer_activated", {})
@@ -281,6 +392,8 @@ class JeopardyUI:
                 await self._broadcast_ui(room_id, "question_opened", {
                     "text": room.current_question.text,
                     "value": room.current_question.value,
+                    "media_type": room.current_question.media_type,
+                    "media_file_id": room.current_question.media_file_id,
                 })
             if room.answering_player_id:
                 player = room.players.get(room.answering_player_id)
@@ -304,7 +417,7 @@ class JeopardyUI:
         
         await self._tg.send_message(
             chat_id,
-            "📦 **Выберите пакет вопросов для игры:**",
+            "📦 <b>Выберите пакет вопросов для игры:</b>",
             reply_markup={"inline_keyboard": keyboard}
         )
 
@@ -316,20 +429,20 @@ class JeopardyUI:
         """
         host = room.players.get(room.host_id)
         host_line = (
-            f"🎙 Ведущий: @{host.username}\n\n" if host else ""
+            f"🎙 Ведущий: {html.escape(host.display_name)}\n\n" if host else ""
         )
 
         lines = []
         for p in room.players.values():
             icon = "✅" if p.is_ready else "⏳"
-            lines.append(f"{icon} @{p.username}: {p.score}")
+            lines.append(f"{icon} {html.escape(p.display_name)}: {p.score}")
 
         players_block = "\n".join(lines) if lines else "Пока никого нет"
         text = (
-            f"🎮 **Лобби игры**\n\n"
+            f"🎮 <b>Лобби игры</b>\n\n"
             f"{host_line}"
             f"👥 Игроки ({len(lines)}):\n{players_block}\n\n"
-            f"Нажми **Готов**, когда будешь готов к игре!"
+            f"Нажми <b>Готов</b>, когда будешь готов к игре!"
         )
 
         keyboard = {
@@ -407,6 +520,6 @@ class JeopardyUI:
         kb = {"inline_keyboard": [buttons]}
         await self._tg.send_message(
             player_telegram_id,
-            f"💰 **Финальная ставка!**\nВаш счёт: **{score}**\nСделайте ставку:",
+            f"💰 <b>Финальная ставка!</b>\nВаш счёт: <b>{score}</b>\nСделайте ставку:",
             reply_markup=kb,
         )

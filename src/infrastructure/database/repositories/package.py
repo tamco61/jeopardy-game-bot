@@ -70,11 +70,15 @@ class PackageRepository:
                             value=q_dto.value,
                             question_type=q_dto.question_type,
                             order_index=q_idx,
+                            media_type=q_dto.media_type,
+                            telegram_file_id=q_dto.telegram_file_id,
                         )
                         theme_model.questions.append(question_model)
 
             session.add(package_model)
             await session.commit()
+
+            return package_model.id
 
     async def delete_package(self, package_id: int) -> bool:
         """Удалить пакет (rounds, themes, questions удалятся каскадно)."""

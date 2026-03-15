@@ -3,12 +3,16 @@ import json
 import logging
 import os
 from typing import Dict, List, Set
+import uuid
+from pathlib import Path
+from fastapi import File, UploadFile, HTTPException, BackgroundTasks
 
 import aio_pika
 import redis.asyncio as aioredis
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 from src.shared.config import AppSettings
@@ -16,6 +20,9 @@ from src.shared.domain_events import ButtonClickEvent, CommandEvent, TextEvent
 from src.shared.logger import get_logger
 from src.shared.messages import WebUIUpdate
 from src.infrastructure.redis_repo import RedisStateRepository
+from src.infrastructure.telegram import TelegramHttpClient
+from src.infrastructure.database.repositories.game_session import GameSessionRepository
+from src.infrastructure.database.base import build_engine, build_session_factory
 
 logger = get_logger(__name__)
 
@@ -65,10 +72,14 @@ rabbit_connection = None
 rabbit_channel = None
 redis_client = None
 state_repo = None
+tg_client = None
+session_repo = None
+engine = None
+session_factory = None
 
 @app.on_event("startup")
 async def startup_event():
-    global rabbit_connection, rabbit_channel, redis_client, state_repo
+    global rabbit_connection, rabbit_channel, redis_client, state_repo, tg_client, session_repo, engine, session_factory
     logger.info("🚀 Запуск API Gateway...")
     
     try:
@@ -79,6 +90,15 @@ async def startup_event():
         # Redis
         redis_client = aioredis.from_url(settings.redis_url)
         state_repo = RedisStateRepository(redis_client)
+        
+        # Telegram Client
+        tg_client = TelegramHttpClient(settings.telegram_bot_token)
+        await tg_client.start()
+
+        # Database & Session Repo
+        engine = build_engine(settings.database_url)
+        session_factory = build_session_factory(engine)
+        session_repo = GameSessionRepository(session_factory)
         
         # Очередь для получения обновлений UI от Core
         queue = await rabbit_channel.declare_queue("ui_updates", auto_delete=False)
@@ -106,7 +126,99 @@ async def shutdown_event():
         await rabbit_connection.close()
     if redis_client:
         await redis_client.close()
+    if tg_client:
+        await tg_client.close()
+    if engine:
+        await engine.dispose()
     logger.info("👋 API Gateway остановлен.")
+
+
+@app.post("/upload-pack")
+async def upload_siq_pack(
+        background_tasks: BackgroundTasks,
+        file: UploadFile = File(...)
+):
+    """
+    Эндпоинт для загрузки .siq файлов.
+    Принимает файл, сохраняет на диск и ставит задачу парсеру в очередь.
+    """
+    if not file.filename.endswith('.siq'):
+        raise HTTPException(status_code=400, detail="Только файлы с расширением .siq разрешены.")
+
+    temp_dir = Path("data/uploads")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_filename = f"{uuid.uuid4().hex}_{file.filename}"
+    file_path = temp_dir / safe_filename
+
+    try:
+        contents = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(contents)
+    except Exception as e:
+        logger.error("❌ Ошибка при сохранении загруженного файла: %s", e)
+        raise HTTPException(status_code=500, detail="Ошибка при сохранении файла на сервере.")
+
+    if rabbit_channel:
+        try:
+            message_body = json.dumps({"file_path": str(file_path)})
+
+            await rabbit_channel.default_exchange.publish(
+                aio_pika.Message(
+                    body=message_body.encode(),
+                    delivery_mode=aio_pika.DeliveryMode.PERSISTENT
+                ),
+                routing_key="siq_parse_tasks",
+            )
+            logger.info("📦 Файл %s загружен и отправлен в очередь на парсинг.", safe_filename)
+        except Exception as e:
+            logger.error("❌ Ошибка при отправке задачи в RabbitMQ: %s", e)
+            if file_path.exists():
+                file_path.unlink()
+            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера (брокер сообщений недоступен).")
+    else:
+        logger.error("❌ Канал RabbitMQ не инициализирован.")
+        raise HTTPException(status_code=500, detail="Сервис временно недоступен.")
+
+    return {
+        "status": "success",
+        "message": "Пак успешно загружен и добавлен в очередь на обработку.",
+        "filename": file.filename
+    }
+
+@app.get("/media/{file_id}")
+async def proxy_media(file_id: str):
+    """
+    Проксирует медиафайл из Telegram напрямую клиенту в виде потока.
+    """
+    if not tg_client:
+        raise HTTPException(status_code=500, detail="Telegram client not initialized")
+
+    try:
+        ctx = tg_client.get_file_stream(file_id)
+        resp = await ctx.__aenter__()
+        
+        content_type = resp.headers.get("Content-Type", "application/octet-stream")
+        
+        async def cleanup_wrapper():
+            try:
+                # ВНИМАНИЕ: Если используешь httpx, замени iter_chunked(65536) на aiter_bytes()
+                async for chunk in resp.content.iter_chunked(65536):
+                    yield chunk
+            finally:
+                await ctx.__aexit__(None, None, None)
+
+        return StreamingResponse(
+            cleanup_wrapper(),
+            media_type=content_type
+        )
+
+    except ValueError as e:
+        logger.warning("⚠️ Ошибка Telegram при запросе файла %s: %s", file_id, e)
+        raise HTTPException(status_code=404, detail="Медиафайл не найден в Telegram.")
+    except Exception as e:
+        logger.exception("❌ Критическая ошибка проксирования медиа %s: %s", file_id, e)
+        raise HTTPException(status_code=500, detail="Ошибка при получении медиафайла.")
 
 @app.get("/health")
 async def health():
@@ -118,23 +230,61 @@ async def list_rooms():
     if not state_repo:
         return []
     rooms = await state_repo.get_all_rooms()
-    return [
-        {
+    
+    result = []
+    for r in rooms:
+        if r.phase == "results":
+            continue
+            
+        # Текущие игроки
+        player_names = [p.display_name for p in r.players.values()]
+        
+        # Участники чата (админы + исторические игроки)
+        chat_members = set()
+        
+        # 1. Админы (из Telegram API)
+        if tg_client:
+            try:
+                admins_res = await tg_client.get_chat_administrators(r.chat_id)
+                if admins_res.get("ok"):
+                    for member in admins_res["result"]:
+                        user = member.get("user", {})
+                        username = user.get("username")
+                        first_name = user.get("first_name", "")
+                        
+                        if username:
+                            chat_members.add(f"@{username}")
+                        elif first_name:
+                            chat_members.add(first_name)
+            except Exception as e:
+                logger.error("❌ Ошибка получения админов для чата %s: %s", r.chat_id, e)
+                
+        # 2. Исторические игроки (из БД)
+        if session_repo:
+            try:
+                hist_players = await session_repo.get_all_chat_players(r.chat_id)
+                for name in hist_players:
+                    # Исторические игроки в БД могут быть как с @, так и без
+                    chat_members.add(name)
+            except Exception as e:
+                logger.error("❌ Ошибка получения исторических игроков для чата %s: %s", r.chat_id, e)
+        
+        result.append({
             "room_id": r.room_id,
             "chat_id": r.chat_id,
             "phase": r.phase,
             "player_count": len(r.players),
-            "current_round": r.round_number
-        }
-        for r in rooms
-        if r.phase != "results"
-    ]
+            "current_round": r.round_number,
+            "player_names": player_names,
+            "chat_members": list(chat_members)
+        })
+        
+    return result
 
 @app.websocket("/ws/{room_id}/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str):
     await manager.connect(websocket, room_id)
     
-    # Определяем: новый игрок (/join) или переподключение (/sync)
     if state_repo and rabbit_channel:
         try:
             room = await state_repo.get_room(room_id)
@@ -178,22 +328,26 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
                     message_id=0
                 )
             elif data.get("type") == "select_question":
+                room = await state_repo.get_room(room_id) # Исправлено: получаем реальный chat_id
+                chat_id = room.chat_id if room else 0
                 q_id = data.get("question_id")
                 event = ButtonClickEvent(
                     source="web",
-                    chat_id=0,
+                    chat_id=chat_id, 
                     room_id=room_id,
                     player_id=player_id,
                     username=data.get("username", "Web Player"),
                     callback_id=f"web_select_{room_id}",
-                    data=f"sq:{room_id}:{q_id}", # Формат SelectQuestionCallback
+                    data=f"sq:{room_id}:{q_id}",
                     message_id=0
                 )
             elif data.get("type") == "submit_answer":
+                room = await state_repo.get_room(room_id) # Исправлено: получаем реальный chat_id
+                chat_id = room.chat_id if room else 0
                 text = data.get("text", "")
                 event = TextEvent(
                     source="web",
-                    chat_id=0, # Will be filled from room state later if needed, but TextEvent is handled by EventRouter
+                    chat_id=chat_id, 
                     room_id=room_id,
                     player_id=player_id,
                     username=data.get("username", player_id),

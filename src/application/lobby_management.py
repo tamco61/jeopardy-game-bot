@@ -63,6 +63,18 @@ class JoinLobbyUseCase:
         if dto.player_id in room.players:
             return
 
+        # Проверка на дубликат ника (display_name)
+        new_nickname = dto.username or dto.first_name
+        if dto.telegram_id == 0:
+            # Для веба ник чистый, без @
+            display_to_check = new_nickname
+        else:
+            display_to_check = f"@{new_nickname}"
+
+        existing_names = {p.display_name.lower() for p in room.players.values()}
+        if display_to_check.lower() in existing_names:
+            raise DomainError(f"Никнейм {display_to_check} уже занят в этой комнате.")
+
         player = Player(
             player_id=dto.player_id,
             telegram_id=dto.telegram_id,

@@ -21,6 +21,8 @@ class SelectQuestionResult(BaseModel):
     phase: str
     question_text: str
     question_value: int
+    media_type: str | None = None
+    telegram_file_id: str | None = None
 
 
 class SelectQuestionUseCase:
@@ -62,4 +64,6 @@ class SelectQuestionUseCase:
             phase=room.phase.value,
             question_text=question.text,
             question_value=question.value,
+            media_type=getattr(question, "media_type", None),
+            telegram_file_id=getattr(question, "telegram_file_id", None),
         )

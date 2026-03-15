@@ -2,15 +2,16 @@ import os
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
-from src.shared.config import AppSettings
-from src.shared.logger import get_logger
-from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.database.base import build_engine, build_session_factory
 from src.infrastructure.database.repositories.package import PackageRepository
+from src.infrastructure.redis_repo import RedisStateRepository
+from src.shared.config import AppSettings
+from src.shared.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -19,6 +20,7 @@ settings = AppSettings()
 state_repo: RedisStateRepository | None = None
 package_repo: PackageRepository | None = None
 redis_client = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,7 +42,28 @@ async def lifespan(app: FastAPI):
         await redis_client.close()
     logger.info("👋 Admin Service остановлен")
 
-app = FastAPI(title="Jeopardy Admin Service", lifespan=lifespan)
+
+security = HTTPBasic()
+
+
+async def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
+    if (
+        credentials.username != settings.admin_user
+        or credentials.password != settings.admin_password
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+app = FastAPI(
+    title="Jeopardy Admin Service",
+    lifespan=lifespan,
+    dependencies=[Depends(get_current_user)]
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,9 +72,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/health")
+
+@app.get("/health", dependencies=[])
 async def health():
     return {"status": "ok"}
+
 
 @app.get("/stats")
 async def get_stats():
@@ -67,6 +92,7 @@ async def get_stats():
         "total_packages": len(packages),
         "total_players": sum(len(r.players) for r in rooms)
     }
+
 
 @app.get("/rooms")
 async def list_rooms():
@@ -87,6 +113,7 @@ async def list_rooms():
         if r.phase != "results"
     ]
 
+
 @app.post("/rooms/clear/{room_id}")
 async def clear_room(room_id: str):
     """Принудительная очистка состояния комнаты."""
@@ -96,12 +123,14 @@ async def clear_room(room_id: str):
     await state_repo.delete_room(room_id)
     return {"status": "success", "message": f"Room {room_id} cleared"}
 
+
 @app.get("/packages")
 async def list_packages():
     """Список всех загруженных пакетов."""
     if not package_repo:
         return []
     return await package_repo.get_all_packages()
+
 
 @app.delete("/packages/{package_id}")
 async def delete_package(package_id: int):
@@ -115,12 +144,14 @@ async def delete_package(package_id: int):
     
     return {"status": "success"}
 
+
 # Serve Admin UI
 static_path = os.path.join(os.path.dirname(__file__), "static")
 if not os.path.exists(static_path):
     os.makedirs(static_path, exist_ok=True)
 
 app.mount("/", StaticFiles(directory=static_path, html=True), name="static")
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -15,37 +15,41 @@ let gameState = {
 /* ══════════════════════════════════════════
    DOM-ЭЛЕМЕНТЫ
 ══════════════════════════════════════════ */
-const joinScreen            = document.getElementById("join-screen");
-const gameScreen            = document.getElementById("game-screen");
-const lobbyList             = document.getElementById("lobby-list");
-const btnJoin               = document.getElementById("btn-join");
-const btnRefresh            = document.getElementById("btn-refresh");
-const playerNameInput       = document.getElementById("player-name");
-const roomDisplay           = document.getElementById("room-display");
-const roundDisplay          = document.getElementById("round-display");
-const scoreboard            = document.getElementById("scoreboard");
-const lobbyView             = document.getElementById("lobby-view");
-const playerList            = document.getElementById("player-list");
-const btnReady              = document.getElementById("btn-ready");
-const btnNotReady           = document.getElementById("btn-notready");
-const btnLeave              = document.getElementById("btn-leave");
-const gameContainer         = document.getElementById("game-container");
-const boardView             = document.getElementById("board-view");
-const questionView          = document.getElementById("question-view");
-const qText                 = document.getElementById("q-text");
-const qValue                = document.getElementById("q-value");
-const buzzerArea            = document.getElementById("buzzer-area");
-const btnBuzzer             = document.getElementById("btn-buzzer");
-const answeringStatus       = document.getElementById("answering-status");
-const answeringName         = document.getElementById("answering-name");
-const answerInputContainer  = document.getElementById("answer-input-container");
-const answerInput           = document.getElementById("answer-input");
-const btnSubmitAnswer       = document.getElementById("btn-submit-answer");
-const answerStatus          = document.getElementById("answer-status");
-const resultsView           = document.getElementById("results-view");
-const resultsList           = document.getElementById("results-list");
-const btnPlayAgain          = document.getElementById("btn-play-again");
-const toastContainer        = document.getElementById("toast-container");
+const joinScreen = document.getElementById("join-screen");
+const gameScreen = document.getElementById("game-screen");
+const lobbyList = document.getElementById("lobby-list");
+const btnJoin = document.getElementById("btn-join");
+const btnRefresh = document.getElementById("btn-refresh");
+const playerNameInput = document.getElementById("player-name");
+const roomDisplay = document.getElementById("room-display");
+const roundDisplay = document.getElementById("round-display");
+const scoreboard = document.getElementById("scoreboard");
+const lobbyView = document.getElementById("lobby-view");
+const playerList = document.getElementById("player-list");
+const btnReady = document.getElementById("btn-ready");
+const btnNotReady = document.getElementById("btn-notready");
+const btnLeave = document.getElementById("btn-leave");
+const gameContainer = document.getElementById("game-container");
+const boardView = document.getElementById("board-view");
+const questionView = document.getElementById("question-view");
+const qText = document.getElementById("q-text");
+const qValue = document.getElementById("q-value");
+const qMediaContainer = document.getElementById("q-media-container");
+const qImage = document.getElementById("q-image");
+const qVideo = document.getElementById("q-video");
+const qAudio = document.getElementById("q-audio");
+const buzzerArea = document.getElementById("buzzer-area");
+const btnBuzzer = document.getElementById("btn-buzzer");
+const answeringStatus = document.getElementById("answering-status");
+const answeringName = document.getElementById("answering-name");
+const answerInputContainer = document.getElementById("answer-input-container");
+const answerInput = document.getElementById("answer-input");
+const btnSubmitAnswer = document.getElementById("btn-submit-answer");
+const answerStatus = document.getElementById("answer-status");
+const resultsView = document.getElementById("results-view");
+const resultsList = document.getElementById("results-list");
+const btnPlayAgain = document.getElementById("btn-play-again");
+const toastContainer = document.getElementById("toast-container");
 
 /* ══════════════════════════════════════════
    TOAST-УВЕДОМЛЕНИЯ
@@ -75,6 +79,8 @@ function setGamePhase(phase) {
 /* ══════════════════════════════════════════
    ЛОББИ: ЗАГРУЗКА СПИСКА КОМНАТ
 ══════════════════════════════════════════ */
+let lobbiesData = [];
+
 async function fetchLobbies() {
     lobbyList.innerHTML = `
         <div class="loader-row">
@@ -85,17 +91,18 @@ async function fetchLobbies() {
     try {
         const res = await fetch("/rooms");
         if (!res.ok) throw new Error("HTTP " + res.status);
-        const rooms = await res.json();
+        lobbiesData = await res.json();
 
         lobbyList.innerHTML = "";
-        if (rooms.length === 0) {
+        if (lobbiesData.length === 0) {
             lobbyList.innerHTML = `<div class="empty-row">Нет активных лобби. Создайте игру в Telegram!</div>`;
             return;
         }
 
-        rooms.forEach(room => {
+        lobbiesData.forEach(room => {
             const item = document.createElement("div");
             item.className = "lobby-item";
+            if (currentRoomId === room.room_id) item.classList.add("selected");
             const phase = room.phase || "—";
             item.innerHTML = `
                 <span class="lobby-room-id">${room.room_id}</span>
@@ -104,6 +111,9 @@ async function fetchLobbies() {
             item.addEventListener("click", () => selectLobby(room.room_id, item));
             lobbyList.appendChild(item);
         });
+        
+        // Перевалидируем, если список обновился
+        validateJoin();
     } catch (e) {
         lobbyList.innerHTML = `<div class="empty-row" style="color:var(--danger)">Ошибка загрузки списка комнат</div>`;
     }
@@ -118,7 +128,51 @@ function selectLobby(roomId, element) {
 
 function validateJoin() {
     playerName = playerNameInput.value.trim();
-    btnJoin.disabled = !(currentRoomId && playerName.length > 0);
+    if (!currentRoomId) {
+        btnJoin.disabled = true;
+        btnJoin.title = "Выберите комнату";
+        return;
+    }
+
+    const room = lobbiesData.find(r => r.room_id === currentRoomId);
+    if (!room) {
+        btnJoin.disabled = true;
+        return;
+    }
+
+    const nameLower = playerName.toLowerCase();
+    
+    // 1. Проверка на пустой ник
+    if (playerName.length === 0) {
+        btnJoin.disabled = true;
+        btnJoin.title = "Введите никнейм";
+        return;
+    }
+
+    // 2. Проверка по текущим игрокам (разрешаем для переподключения)
+    const isTakenByPlayer = room.player_names.some(n => n.toLowerCase() === nameLower);
+    if (isTakenByPlayer) {
+        playerNameInput.classList.remove("invalid");
+        btnJoin.disabled = false;
+        btnJoin.textContent = "Переподключиться";
+        btnJoin.title = "Вернуться в игру под этим именем";
+        return;
+    }
+
+    // 3. Проверка по участникам (админы + исторические)
+    const isTakenByMember = room.chat_members.some(n => n.toLowerCase() === nameLower || n.toLowerCase() === `@${nameLower}`);
+    if (isTakenByMember) {
+        btnJoin.disabled = true;
+        btnJoin.textContent = "Занято";
+        btnJoin.title = "Этот никнейм занят участником из Telegram";
+        playerNameInput.classList.add("invalid");
+        return;
+    }
+
+    playerNameInput.classList.remove("invalid");
+    btnJoin.disabled = false;
+    btnJoin.textContent = "Присоединиться";
+    btnJoin.title = "Присоединиться к игре";
 }
 
 playerNameInput.addEventListener("input", validateJoin);
@@ -281,9 +335,43 @@ function renderBoard() {
 /* ══════════════════════════════════════════
    ВОПРОС
 ══════════════════════════════════════════ */
-function showQuestion({ text, value }) {
+function showQuestion({ text, value, media_type, media_file_id }) {
+    console.log("ДАННЫЕ ВОПРОСА ОТ СЕРВЕРА:", media_file_id, media_type);
     qText.textContent = text;
     qValue.textContent = `${value} очков`;
+
+    // Обработка медиа
+    qMediaContainer.classList.add("hidden");
+    qImage.classList.add("hidden");
+    qVideo.classList.add("hidden");
+    qAudio.classList.add("hidden");
+    
+    qImage.src = "";
+    qVideo.src = "";
+    qAudio.src = "";
+
+    if (media_file_id) {
+        const mediaUrl = `/media/${media_file_id}`;
+        let showMedia = false;
+
+        if (media_type === "photo" || media_type === "image") {
+            qImage.src = mediaUrl;
+            qImage.classList.remove("hidden");
+            showMedia = true;
+        } else if (media_type === "video" || media_type === "video_note") {
+            qVideo.src = mediaUrl;
+            qVideo.classList.remove("hidden");
+            showMedia = true;
+        } else if (media_type === "audio" || media_type === "voice") {
+            qAudio.src = mediaUrl;
+            qAudio.classList.remove("hidden");
+            showMedia = true;
+        }
+
+        if (showMedia) {
+            qMediaContainer.classList.remove("hidden");
+        }
+    }
 
     // Сброс состояния
     setBuzzerState("disabled");
@@ -296,9 +384,7 @@ function showQuestion({ text, value }) {
 }
 
 function activateBuzzer() {
-    // Показываем question-view если он был скрыт (например после неверного ответа)
     questionView.classList.remove("hidden");
-    // Сбрасываем состояние предыдущего ответа
     answerInputContainer.classList.add("hidden");
     answerStatus.classList.add("hidden");
     answeringStatus.classList.add("hidden");
@@ -310,14 +396,12 @@ function showAnsweringState({ player_id, name }) {
     setBuzzerState("disabled");
 
     if (player_id === playerName) {
-        // Это мы отвечаем
         answerInputContainer.classList.remove("hidden");
         answeringStatus.classList.add("hidden");
         answerStatus.classList.add("hidden");
         answerInput.focus();
         showToast("Ваша очередь отвечать!", "success");
     } else {
-        // Другой игрок
         answerInputContainer.classList.add("hidden");
         answeringName.textContent = `${name} отвечает...`;
         answeringStatus.classList.remove("hidden");
@@ -332,15 +416,12 @@ function showVerdict({ verdict }) {
     setBuzzerState("disabled");
 
     showToast(`Вердикт: ${verdict}`, "info");
-    // Не скрываем question-view здесь.
-    // Если ответ верный → придёт board_updated и renderBoardUpdate скроет question-view.
-    // Если ответ неверный → придёт buzzer_activated и activateBuzzer восстановит buzzer.
 }
 
 function setBuzzerState(state) {
     btnBuzzer.classList.remove("disabled", "loading");
     if (state === "disabled") btnBuzzer.classList.add("disabled");
-    if (state === "loading")  btnBuzzer.classList.add("loading");
+    if (state === "loading") btnBuzzer.classList.add("loading");
 }
 
 /* ══════════════════════════════════════════
@@ -350,7 +431,6 @@ const PLACE_MEDALS = ["🥇", "🥈", "🥉"];
 
 function showResults({ scores }) {
     gameFinished = true;
-    // Скрываем всё игровое
     questionView.classList.add("hidden");
     lobbyView.classList.add("hidden");
     gameContainer.classList.remove("hidden");
@@ -437,7 +517,6 @@ answerInput.addEventListener("keydown", (e) => {
    ИНИЦИАЛИЗАЦИЯ
 ══════════════════════════════════════════ */
 fetchLobbies();
-// Обновляем список лобби каждые 5 секунд пока на экране входа
 const lobbyInterval = setInterval(() => {
     if (!gameScreen.classList.contains("hidden")) {
         clearInterval(lobbyInterval);

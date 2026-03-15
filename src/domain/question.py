@@ -25,6 +25,9 @@ class Question(BaseModel):
     value: int = 100 # стоимость (100, 200, …)
     question_type: QuestionType = QuestionType.NORMAL
 
+    media_type: str | None = None
+    telegram_file_id: str | None = None
+
     def check_answer(self, user_answer: str) -> bool:
         """Проверить ответ (без учёта регистра, с обрезкой пробелов)."""
         return self.answer.strip().lower() == user_answer.strip().lower()
