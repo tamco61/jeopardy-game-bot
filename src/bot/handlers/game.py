@@ -416,20 +416,15 @@ class GameHandler:
 
                 verdict_text = "✅ Верно" if is_correct else "❌ Неверно"
                 if message_id > 0:
-                    media_type = room.current_question.media_type if room.current_question else None
-                    new_text = f"Вердикт: {verdict_text}"
-
-                    if media_type:
-                        await getattr(self._ui._tg, "edit_message_caption")(
-                            chat_id=chat_id, message_id=message_id, caption=new_text
-                        )
-                    else:
-                        await self._ui.edit_message_text(
-                            chat_id=chat_id, message_id=message_id, text=new_text
-                        )
+                    player = room.players.get(target_player_id)
+                    username = player.username if player else "???"
+                    new_text = f"Вердикт для @{html.escape(username)}: {verdict_text}"
+                    await self._ui.edit_message_text(
+                        chat_id=chat_id, message_id=message_id, text=new_text
+                    )
                     
-                    # Удаляем сообщение из ЛС хоста через 3 секунды, чтобы не забивать чат
-                    asyncio.create_task(self._ui._delete_after(chat_id, message_id, delay=3.0))
+                    host_delay = 3.0
+                    asyncio.create_task(self._ui._delete_after(chat_id, message_id, delay=host_delay))
 
                 await self._ui.show_verdict(
                     room.chat_id, room_id, verdict_text,
