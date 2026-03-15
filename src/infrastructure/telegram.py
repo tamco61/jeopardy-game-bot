@@ -36,9 +36,12 @@ class TelegramHttpClient:
         chat_id: int,
         text: str,
         reply_markup: dict | None = None,
+        parse_mode: str | None = "HTML",
     ) -> dict:
         """Отправить сообщение в чат."""
         payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         if reply_markup is not None:
             payload["reply_markup"] = json.dumps(reply_markup)
         return await self._post("sendMessage", payload)
@@ -49,6 +52,7 @@ class TelegramHttpClient:
             message_id: int,
             caption: str,
             reply_markup: dict | None = None,
+            parse_mode: str | None = "HTML",
     ) -> dict:
         """Отредактировать подпись (caption) существующего медиа-сообщения."""
         payload: dict[str, Any] = {
@@ -56,6 +60,8 @@ class TelegramHttpClient:
             "message_id": message_id,
             "caption": caption,
         }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         if reply_markup is not None:
             payload["reply_markup"] = json.dumps(reply_markup)
         return await self._post("editMessageCaption", payload)
@@ -81,6 +87,7 @@ class TelegramHttpClient:
         message_id: int,
         text: str,
         reply_markup: dict | None = None,
+        parse_mode: str | None = "HTML",
     ) -> dict:
         """Отредактировать текст существующего сообщения."""
         payload: dict[str, Any] = {
@@ -88,6 +95,8 @@ class TelegramHttpClient:
             "message_id": message_id,
             "text": text,
         }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         if reply_markup is not None:
             payload["reply_markup"] = json.dumps(reply_markup)
         return await self._post("editMessageText", payload)
@@ -184,6 +193,7 @@ class TelegramHttpClient:
             filename: str | None = None,
             caption: str | None = None,
             reply_markup: dict | None = None,
+            parse_mode: str | None = "HTML",
     ) -> dict:
         """Отправить медиафайл в чат."""
         import logging
@@ -204,6 +214,9 @@ class TelegramHttpClient:
 
             if caption:
                 payload["caption"] = caption
+            
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
 
             if reply_markup:
                 # Если уже строка - оставляем, если словарь - дампим
@@ -234,6 +247,8 @@ class TelegramHttpClient:
 
         if caption:
             data.add_field("caption", caption)
+        if parse_mode:
+            data.add_field("parse_mode", parse_mode)
         if reply_markup:
             import json
             data.add_field("reply_markup", json.dumps(reply_markup) if isinstance(reply_markup, dict) else reply_markup)

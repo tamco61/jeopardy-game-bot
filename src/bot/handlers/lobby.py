@@ -5,6 +5,7 @@ from src.application.lobby_management import (
     LeaveLobbyUseCase,
     ReadyUseCase,
 )
+import html
 from src.bot.callback import (
     LobbyLeaveCallback,
     LobbyNotReadyCallback,
@@ -38,12 +39,12 @@ class LobbyHandler:
     async def handle_start(self, chat_id: int) -> None:
         await self._ui.send_message(
             chat_id,
-            "👋 **Добро пожаловать в Свою Игру!**\n\n"
+            "👋 <b>Добро пожаловать в Свою Игру!</b>\n\n"
             "Как начать игру:\n"
             "1️⃣ Ведущий пишет /create_lobby в групповом чате\n"
-            "2️⃣ Игроки пишут /join\n"
-            "3️⃣ Все нажимают **✅ Готов** в сообщении лобби\n"
-            "4️⃣ Ведущий нажимает **🚀 Начать игру**\n\n"
+            "2️⃣ Игроки пишет /join\n"
+            "3️⃣ Все нажимают <b>✅ Готов</b> в сообщении лобби\n"
+            "4️⃣ Ведущий нажимает <b>🚀 Начать игру</b>\n\n"
             "📝 /results — посмотреть результаты последней игры",
         )
 
@@ -158,6 +159,6 @@ class LobbyHandler:
         """Показать результаты последней игры в этом чате."""
         results = await self._state_repo.get_last_results(chat_id)
         if results:
-            await self._ui.send_message(chat_id, f"📝 **Последние результаты:**\n\n{results}")
+            await self._ui.send_message(chat_id, f"📝 <b>Последние результаты:</b>\n\n{results}")
         else:
             await self._ui.send_message(chat_id, "🤷♂️ Результаты прошлых игр в этом чате не найдены.")

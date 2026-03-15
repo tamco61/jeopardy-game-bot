@@ -1,4 +1,5 @@
 import asyncio
+import html
 import random
 import time
 
@@ -283,7 +284,7 @@ class GameHandler:
                 if user_tg_id:
                     await self._ui.send_message(
                         chat_id=user_tg_id,
-                        text=f"❓ Ты первый! Вопрос:\n\n*{q_text}*\n\nНапиши ответ прямо в это ЛС. У тебя 10 секунд!"
+                        text=f"❓ Ты первый! Вопрос:\n\n<i>{html.escape(q_text)}</i>\n\nНапиши ответ прямо в это ЛС. У тебя 10 секунд!"
                     )
                     # Запоминаем активную комнату для игрока (для приема ответа в ЛС)
                     await self._state_repo.set_active_room(user_tg_id, room_id)
@@ -337,9 +338,9 @@ class GameHandler:
                 await self._ui.send_message(
                     chat_id=room.host_telegram_id,
                     text=(
-                        f"Игрок @{username} дал ответ!\n\n"
-                        f"🔸 **Его ответ:** {text}\n"
-                        f"🔹 **Правильный ответ:** {correct_answer_text}\n\n"
+                        f"Игрок @{html.escape(username)} дал ответ!\n\n"
+                        f"🔸 <b>Его ответ:</b> {html.escape(text)}\n"
+                        f"🔹 <b>Правильный ответ:</b> {html.escape(correct_answer_text)}\n\n"
                         f"Ваш вердикт?"
                     ),
                     reply_markup=keyboard,
@@ -366,9 +367,9 @@ class GameHandler:
                 await self._ui.send_message(
                     chat_id=room.host_telegram_id,
                     text=(
-                        f"🏆 **ФИНАЛЬНЫЙ ОТВЕТ** от @{username}\n\n"
-                        f"🔸 **Его ответ:** {text}\n"
-                        f"🔹 **Правильный ответ:** {correct_answer_text}\n\n"
+                        f"🏆 <b>ФИНАЛЬНЫЙ ОТВЕТ</b> от @{html.escape(username)}\n\n"
+                        f"🔸 <b>Его ответ:</b> {html.escape(text)}\n"
+                        f"🔹 <b>Правильный ответ:</b> {html.escape(correct_answer_text)}\n\n"
                         f"Ваш вердикт?"
                     ),
                     reply_markup=keyboard,
@@ -687,7 +688,7 @@ class GameHandler:
                 await self._ui.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
-                    text=f"✅ Ставка принята: **{amount}** очков",
+                    text=f"✅ Ставка принята: <b>{amount}</b> очков",
                 )
             await self._ui.answer_callback_query(cb_id, text=f"Ставка {amount} принята!")
         except (SQLAlchemyError, aioredis.RedisError) as e:
@@ -708,8 +709,8 @@ class GameHandler:
                 
                 await self._ui.send_message(
                     room.chat_id,
-                    f"💰 **ФИНАЛЬНЫЙ ВОПРОС** (за вашу ставку)\n\n"
-                    f"*{q_text}*\n\n"
+                    f"💰 <b>ФИНАЛЬНЫЙ ВОПРОС</b> (за вашу ставку)\n\n"
+                    f"<i>{html.escape(q_text)}</i>\n\n"
                     f"⏰ Игроки, пишите свои ответы МНЕ В ЛИЧКУ! У вас есть время подумать."
                 )
 
@@ -767,7 +768,7 @@ class GameHandler:
                         room.round_number += 1
                         await self._state_repo.save_room(room)
                         await self._ui.send_message(room.chat_id, "🏆 Время ФИНАЛА!")
-                        await self._ui.send_message(room.chat_id, f"Тема: *{q.theme_name}*")
+                        await self._ui.send_message(room.chat_id, f"Тема: <b>{html.escape(q.theme_name)}</b>")
                         kb = {"inline_keyboard": [[{"text": "🏁 Прием ставок", "callback_data": FinalStartStakesCallback(room_id=f"room_{room.chat_id}").pack()}]]}
                         await self._ui.send_message(room.chat_id, "Откройте прием ставок.", reply_markup=kb)
             else:
@@ -801,10 +802,10 @@ class GameHandler:
         if room.phase == Phase.FINAL_ANSWER:
             # Считаем итоги в домене
             results = room.resolve_final()
-            text = "🏁 **РЕЗУЛЬТАТЫ ФИНАЛА** 🏁\n\n"
+            text = "🏁 <b>РЕЗУЛЬТАТЫ ФИНАЛА</b> 🏁\n\n"
             q_text = room.final_question.text if room.final_question else "???"
             a_text = room.final_question.answer if room.final_question else "???"
-            text += f"Вопрос: {q_text}\nОтвет: *{a_text}*\n\n"
+            text += f"Вопрос: {html.escape(q_text)}\nОтвет: <i>{html.escape(a_text)}</i>\n\n"
 
             for pid, correct in results.items():
                 p = room.players.get(pid)
@@ -812,7 +813,7 @@ class GameHandler:
                     v = "✅" if correct else "❌"
                     ans = room.final_answers.get(pid, "---")
                     stake = room.final_stakes.get(pid, 0)
-                    text += f"{v} @{p.username}: {ans} (Ставка: {stake})\n"
+                    text += f"{v} @{html.escape(p.username)}: {html.escape(ans)} (Ставка: {stake})\n"
 
             await self._ui.send_message(room.chat_id, text)
             res_text = await self._ui.render_results(room.chat_id, room)

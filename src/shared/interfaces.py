@@ -8,6 +8,7 @@ class MessageGateway(Protocol):
         chat_id: int,
         text: str,
         reply_markup: Optional[Dict[str, Any]] = None,
+        parse_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
         ...
 
@@ -18,6 +19,7 @@ class MessageGateway(Protocol):
             media: str,  # Сюда прилетит наш telegram_file_id
             caption: Optional[str] = None,
             reply_markup: Optional[Dict[str, Any]] = None,
+            parse_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
         ...
 
@@ -27,6 +29,7 @@ class MessageGateway(Protocol):
             message_id: int,
             caption: str,
             reply_markup: Optional[Dict[str, Any]] = None,
+            parse_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
         ...
 
@@ -44,6 +47,7 @@ class MessageGateway(Protocol):
         message_id: int,
         text: str,
         reply_markup: Optional[Dict[str, Any]] = None,
+        parse_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
         ...
 

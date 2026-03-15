@@ -1,4 +1,5 @@
 import asyncio
+import html
 
 import aiohttp
 
@@ -73,7 +74,7 @@ class JeopardyUI:
         }])
 
         scoreboard = self.format_scoreboard(room)
-        text = f"🎮 **Табло: {room.current_round_name} ({room.round_number}/{room.total_rounds})**" + scoreboard
+        text = f"🎮 <b>Табло: {html.escape(room.current_round_name)} ({room.round_number}/{room.total_rounds})</b>" + scoreboard
 
         # Бродкастим состояние табло для веба
         await self._broadcast_ui(str(room.room_id), "board_updated", {
@@ -133,15 +134,15 @@ class JeopardyUI:
 
     def format_scoreboard(self, room: Room) -> str:
         """Форматирует текущий счет игроков."""
-        scoreboard = "\n\n📊 **Счет:**\n"
+        scoreboard = "\n\n📊 <b>Счет:</b>\n"
         for p in room.players.values():
             prefix = "👉" if p.player_id == room.selecting_player_id else "👤"
-            scoreboard += f"{prefix} {p.display_name}: {p.score}\n"
+            scoreboard += f"{prefix} {html.escape(p.display_name)}: {p.score}\n"
 
         if room.selecting_player_id:
             try:
                 picker = room.get_player(room.selecting_player_id)
-                scoreboard += f"\n🤔 Командует @{picker.username}!"
+                scoreboard += f"\n🤔 Командует @{html.escape(picker.username)}!"
             except Exception:
                 logger.warning("Не удалось получить выбирающего игрока", exc_info=True)
         return scoreboard
@@ -200,8 +201,8 @@ class JeopardyUI:
         })
 
         # Убираем техническую заглушку, чтобы не позориться перед игроками
-        clean_text = text if text != "[Пустой вопрос]" else "Внимание на экран!"
-        caption_text = f"💰 Вопрос за {value}\n\n{clean_text}".strip()
+        clean_text = html.escape(text) if text != "[Пустой вопрос]" else "Внимание на экран!"
+        caption_text = f"💰 <b>Вопрос за {value}</b>\n\n{clean_text}".strip()
 
         try:
             if media_file_id and media_type:
@@ -340,7 +341,7 @@ class JeopardyUI:
     async def render_results(self, chat_id: int, room: Room) -> str:
         """Показать финальные результаты игры и вернуть текст для архива."""
         scoreboard = self.format_scoreboard(room)
-        text = "🏆 **ИГРА ОКОНЧЕНА!** 🏆\n" + scoreboard
+        text = "🏆 <b>ИГРА ОКОНЧЕНА!</b> 🏆\n" + scoreboard
         await self._tg.send_message(chat_id, text)
         await self._broadcast_ui(str(room.room_id), "game_finished", {
             "scores": [
@@ -412,7 +413,7 @@ class JeopardyUI:
         
         await self._tg.send_message(
             chat_id,
-            "📦 **Выберите пакет вопросов для игры:**",
+            "📦 <b>Выберите пакет вопросов для игры:</b>",
             reply_markup={"inline_keyboard": keyboard}
         )
 
@@ -434,10 +435,10 @@ class JeopardyUI:
 
         players_block = "\n".join(lines) if lines else "Пока никого нет"
         text = (
-            f"🎮 **Лобби игры**\n\n"
+            f"🎮 <b>Лобби игры</b>\n\n"
             f"{host_line}"
             f"👥 Игроки ({len(lines)}):\n{players_block}\n\n"
-            f"Нажми **Готов**, когда будешь готов к игре!"
+            f"Нажми <b>Готов</b>, когда будешь готов к игре!"
         )
 
         keyboard = {
@@ -515,6 +516,6 @@ class JeopardyUI:
         kb = {"inline_keyboard": [buttons]}
         await self._tg.send_message(
             player_telegram_id,
-            f"💰 **Финальная ставка!**\nВаш счёт: **{score}**\nСделайте ставку:",
+            f"💰 <b>Финальная ставка!</b>\nВаш счёт: <b>{score}</b>\nСделайте ставку:",
             reply_markup=kb,
         )
