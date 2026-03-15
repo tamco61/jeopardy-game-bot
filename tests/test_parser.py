@@ -37,8 +37,14 @@ def test_siq_parser_xml():
     </package>
     """
     
+    from unittest.mock import MagicMock
+    import zipfile
+    
     parser = SiqParser()
-    package = parser._parse_xml(xml_data)
+    mock_zf = MagicMock(spec=zipfile.ZipFile)
+    mock_zf.namelist.return_value = []
+    
+    package = parser._parse_xml(xml_data, mock_zf, [])
     
     assert package.title == "Test Package"
     assert package.author == "Author Name"
@@ -60,6 +66,6 @@ def test_siq_parser_xml():
     
     q2 = theme1.questions[1]
     assert q2.value == 200
-    assert "Только медиафайл" in q2.text or "только медиафайл" in q2.text.lower()
+    assert "[Пустой вопрос]" in q2.text
     assert q2.answer == "A picture"
 

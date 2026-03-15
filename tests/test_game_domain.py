@@ -166,8 +166,8 @@ class TestFSMTransitions:
         board_room.select_question(sample_question)
         board_room.activate_buzzer()
         board_room.press_button("p1")
-        result = board_room.submit_answer("p1", "Париж")
-        assert result is True
+        board_room.provide_answer("p1", "Париж")
+        board_room.resolve_answer("p1", True)
         assert board_room.phase == Phase.BOARD_VIEW
         assert board_room.players["p1"].score == 200
         # p1 ответил верно, теперь он выбирает
@@ -182,8 +182,8 @@ class TestFSMTransitions:
         board_room.select_question(sample_question)
         board_room.activate_buzzer()
         board_room.press_button("p1")
-        result = board_room.submit_answer("p1", "Лондон")
-        assert result is False
+        board_room.provide_answer("p1", "Лондон")
+        board_room.resolve_answer("p1", False)
         assert board_room.phase == Phase.WAITING_FOR_PUSH
         assert board_room.players["p1"].is_blocked_this_question
         assert board_room.players["p1"].score == -200
@@ -199,11 +199,13 @@ class TestFSMTransitions:
 
         # p1 ошибается
         board_room.press_button("p1")
-        board_room.submit_answer("p1", "Лондон")
+        board_room.provide_answer("p1", "Лондон")
+        board_room.resolve_answer("p1", False)
 
         # p2 ошибается — больше некому
         board_room.press_button("p2")
-        board_room.submit_answer("p2", "Берлин")
+        board_room.provide_answer("p2", "Берлин")
+        board_room.resolve_answer("p2", False)
 
         assert board_room.phase == Phase.BOARD_VIEW
 
@@ -217,7 +219,8 @@ class TestFSMTransitions:
 
         # p1 ошибается
         board_room.press_button("p1")
-        board_room.submit_answer("p1", "Лондон")
+        board_room.provide_answer("p1", "Лондон")
+        board_room.resolve_answer("p1", False)
 
         # p1 пытается снова
         with pytest.raises(PlayerBlockedError):
@@ -314,6 +317,7 @@ class TestFinalRound:
         board_room.submit_final_answer("p1", "Нил")
         board_room.submit_final_answer("p2", "Амазонка")
 
+        board_room.final_verdicts = {"p1": True, "p2": False}
         results = board_room.resolve_final()
         assert board_room.phase == Phase.RESULTS
 
