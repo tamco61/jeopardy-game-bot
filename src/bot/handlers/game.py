@@ -641,7 +641,7 @@ class GameHandler:
             await self._place_stake.execute(room_id, player_id, stake_val)
             await self._ui.send_message(
                 chat_id,
-                f"Игрок @{username} поставил {stake_val} очков!",
+                f"Игрок @{html.escape(username)} поставил {stake_val} очков!",
             )
         except ValueError:
             await self._ui.send_message(chat_id, "Использование: /stack <сумма>")

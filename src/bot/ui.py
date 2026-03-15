@@ -425,13 +425,13 @@ class JeopardyUI:
         """
         host = room.players.get(room.host_id)
         host_line = (
-            f"🎙 Ведущий: @{host.username}\n\n" if host else ""
+            f"🎙 Ведущий: @{html.escape(host.username)}\n\n" if host else ""
         )
 
         lines = []
         for p in room.players.values():
             icon = "✅" if p.is_ready else "⏳"
-            lines.append(f"{icon} @{p.username}: {p.score}")
+            lines.append(f"{icon} @{html.escape(p.username)}: {p.score}")
 
         players_block = "\n".join(lines) if lines else "Пока никого нет"
         text = (

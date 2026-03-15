@@ -108,6 +108,14 @@ class EventRouter:
             "username": event.username,
             "user_tg_id": event.user_tg_id,
             "room_id": event.room_id,
+            "lobby_dto": BaseLobbyDTO(
+                room_id=event.room_id,
+                player_id=event.player_id,
+                telegram_id=event.user_tg_id or 0,
+                group_chat_id=event.chat_id,
+                username=event.username,
+                first_name=event.username,
+            ),
         }
 
         for prefix, handler in self.router.callbacks.items():

@@ -7,6 +7,7 @@ from src.application.lobby_management import (
 )
 import html
 from src.bot.callback import (
+    LobbyJoinCallback,
     LobbyLeaveCallback,
     LobbyNotReadyCallback,
     LobbyReadyCallback,
@@ -46,6 +47,11 @@ class LobbyHandler:
             "3️⃣ Все нажимают <b>✅ Готов</b> в сообщении лобби\n"
             "4️⃣ Ведущий нажимает <b>🚀 Начать игру</b>\n\n"
             "📝 /results — посмотреть результаты последней игры",
+            reply_markup={
+                "inline_keyboard": [
+                    [{"text": "🚪 Войти в игру", "callback_data": LobbyJoinCallback().pack()}]
+                ]
+            }
         )
 
     @command("/create_lobby")
@@ -54,7 +60,12 @@ class LobbyHandler:
             await self._create_lobby.execute(lobby_dto)
             await self._ui.send_message(
                 chat_id,
-                "✅ Лобби создано! Вы ведущий. Игроки пишут /join.",
+                "✅ <b>Лобби создано!</b> Вы ведущий. Игроки могут войти по кнопке ниже или командой /join.",
+                reply_markup={
+                    "inline_keyboard": [
+                        [{"text": "🚪 Войти в игру", "callback_data": LobbyJoinCallback().pack()}]
+                    ]
+                }
             )
         except Exception as e:
             await self._ui.send_message(chat_id, f"Ошибка: {e}")
@@ -97,7 +108,7 @@ class LobbyHandler:
             if room:
                 await self._update_lobby(chat_id, room)
             else:
-                await self._ui.send_message(chat_id, f"Игрок @{username} покинул лобби.")
+                await self._ui.send_message(chat_id, f"Игрок @{html.escape(username)} покинул лобби.")
         except Exception as e:
             await self._ui.send_message(chat_id, f"Ошибка: {e}")
 
@@ -144,6 +155,19 @@ class LobbyHandler:
             await self._ui.answer_callback_query(cb_id, text=f"Ошибка: {e}", show_alert=True)
             return
         await self._ui.answer_callback_query(cb_id, text=f"@{username} покинул лобби")
+
+    @callback(LobbyJoinCallback)
+    async def handle_lobby_join_cb(
+        self, chat_id: int, lobby_dto: BaseLobbyDTO, cb_id: str
+    ) -> None:
+        try:
+            await self._join_lobby.execute(lobby_dto)
+            room = await self._state_repo.get_room(lobby_dto.room_id)
+            if room:
+                await self._update_lobby(chat_id, room)
+            await self._ui.answer_callback_query(cb_id, text="Вы вошли в игру!")
+        except Exception as e:
+            await self._ui.answer_callback_query(cb_id, text=f"Ошибка: {e}", show_alert=True)
 
     # ── Вспомогательные методы ───────────────────────
 
