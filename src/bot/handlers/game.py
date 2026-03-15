@@ -275,9 +275,12 @@ class GameHandler:
                 msg_id_to_edit = message_id if message_id > 0 else (room_now.last_buzzer_message_id or 0)
 
                 if msg_id_to_edit > 0:
+                    player = room_now.players.get(player_id)
+                    display_name = player.display_name if player else username
+                    
                     # Узнаем, была ли картинка в текущем вопросе
                     media_type = room_now.current_question.media_type if room_now.current_question else None
-                    new_text = f"🛑 Отвечает @{username}! Ждём ответа..."
+                    new_text = f"🛑 Отвечает {html.escape(display_name)}! Ждём ответа..."
 
                     if media_type:
                         # Если это картинка, меняем подпись (через клиент Telegram)
@@ -354,16 +357,13 @@ class GameHandler:
                 await self._ui.send_message(
                     chat_id=room.host_telegram_id,
                     text=(
-                        f"Игрок @{html.escape(username)} дал ответ!\n\n"
+                        f"Игрок {html.escape(room.players.get(player_id).display_name if room.players.get(player_id) else username)} дал ответ!\n\n"
                         f"🔸 <b>Его ответ:</b> {html.escape(text)}\n"
                         f"🔹 <b>Правильный ответ:</b> {html.escape(correct_answer_text)}\n\n"
                         f"Ваш вердикт?"
                     ),
                     reply_markup=keyboard,
                 )
-
-                if is_private:
-                    await self._ui.send_message(chat_id, "✅ Твой ответ передан ведущему!")
 
             elif room.phase == Phase.FINAL_ANSWER:
                 if not room.host_telegram_id:
@@ -383,7 +383,7 @@ class GameHandler:
                 await self._ui.send_message(
                     chat_id=room.host_telegram_id,
                     text=(
-                        f"🏆 <b>ФИНАЛЬНЫЙ ОТВЕТ</b> от @{html.escape(username)}\n\n"
+                        f"🏆 <b>ФИНАЛЬНЫЙ ОТВЕТ</b> от {html.escape(room.players.get(player_id).display_name if room.players.get(player_id) else username)}\n\n"
                         f"🔸 <b>Его ответ:</b> {html.escape(text)}\n"
                         f"🔹 <b>Правильный ответ:</b> {html.escape(correct_answer_text)}\n\n"
                         f"Ваш вердикт?"
@@ -391,10 +391,8 @@ class GameHandler:
                     reply_markup=keyboard,
                 )
 
-                if is_private:
-                    await self._ui.send_message(chat_id, "✅ Твой финальный ответ передан ведущему!")
-                else:
-                    await self._ui.send_message(room.chat_id, f"Финальный ответ от @{username} принят.")
+                if not is_private:
+                    await self._ui.send_message(room.chat_id, f"Финальный ответ от {room.players.get(player_id).display_name if room.players.get(player_id) else username} принят.")
 
         except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error("Ошибка при сохранении ответа: %s", e)
@@ -417,8 +415,8 @@ class GameHandler:
                 verdict_text = "✅ Верно" if is_correct else "❌ Неверно"
                 if message_id > 0:
                     player = room.players.get(target_player_id)
-                    username = player.username if player else "???"
-                    new_text = f"Вердикт для @{html.escape(username)}: {verdict_text}"
+                    display_name = player.display_name if player else username
+                    new_text = f"Вердикт для {html.escape(display_name)}: {verdict_text}"
                     await self._ui.edit_message_text(
                         chat_id=chat_id, message_id=message_id, text=new_text
                     )
@@ -479,10 +477,12 @@ class GameHandler:
             
             # Обновляем сообщение у ведущего, чтобы он видел что нажал
             if message_id > 0:
+                player = room.players.get(target_player_id)
+                display_name = player.display_name if player else "???"
                 await self._ui.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
-                    text=f"Вердикт для @{getattr(room.players.get(target_player_id), 'username', '???')}: {verdict_text}"
+                    text=f"Вердикт для {html.escape(display_name)}: {verdict_text}"
                 )
                 # Удаляем сообщение из ЛС хоста через 3 секунды
                 asyncio.create_task(self._ui._delete_after(chat_id, message_id, delay=3.0))
@@ -537,7 +537,9 @@ class GameHandler:
             await asyncio.sleep(10)
             room = await self._state_repo.get_room(room_id)
             if room and room.phase == Phase.ANSWERING and room.answering_player_id == player_id:
-                await self._ui.send_temporary(room.chat_id, f"⏰ Время вышло! @{username} не успел ответить.")
+                player = room.players.get(player_id)
+                display_name = player.display_name if player else username
+                await self._ui.send_temporary(room.chat_id, f"⏰ Время вышло! {display_name} не успел ответить.")
 
                 # СОЗДАЕМ ОБЪЕКТ, А НЕ СТРОКУ:
                 verdict_data = VerdictCallback(
@@ -652,9 +654,11 @@ class GameHandler:
         try:
             stake_val = int(text.split(" ")[1])
             await self._place_stake.execute(room_id, player_id, stake_val)
+            player = room.players.get(player_id) if room else None
+            display_name = player.display_name if player else username
             await self._ui.send_message(
                 chat_id,
-                f"Игрок @{html.escape(username)} поставил {stake_val} очков!",
+                f"Игрок {html.escape(display_name)} поставил {stake_val} очков!",
             )
         except ValueError:
             await self._ui.send_message(chat_id, "Использование: /stack <сумма>")

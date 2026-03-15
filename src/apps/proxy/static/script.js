@@ -36,6 +36,8 @@ const qText = document.getElementById("q-text");
 const qValue = document.getElementById("q-value");
 const qMediaContainer = document.getElementById("q-media-container");
 const qImage = document.getElementById("q-image");
+const qVideo = document.getElementById("q-video");
+const qAudio = document.getElementById("q-audio");
 const buzzerArea = document.getElementById("buzzer-area");
 const btnBuzzer = document.getElementById("btn-buzzer");
 const answeringStatus = document.getElementById("answering-status");
@@ -338,13 +340,37 @@ function showQuestion({ text, value, media_type, media_file_id }) {
     qText.textContent = text;
     qValue.textContent = `${value} очков`;
 
-    // ИСПРАВЛЕНИЕ: Расширенная проверка типа медиа
-    if ((media_type === "photo" || media_type === "image") && media_file_id) {
-        qImage.src = `/media/${media_file_id}`;
-        qMediaContainer.classList.remove("hidden");
-    } else {
-        qMediaContainer.classList.add("hidden");
-        qImage.src = "";
+    // Обработка медиа
+    qMediaContainer.classList.add("hidden");
+    qImage.classList.add("hidden");
+    qVideo.classList.add("hidden");
+    qAudio.classList.add("hidden");
+    
+    qImage.src = "";
+    qVideo.src = "";
+    qAudio.src = "";
+
+    if (media_file_id) {
+        const mediaUrl = `/media/${media_file_id}`;
+        let showMedia = false;
+
+        if (media_type === "photo" || media_type === "image") {
+            qImage.src = mediaUrl;
+            qImage.classList.remove("hidden");
+            showMedia = true;
+        } else if (media_type === "video" || media_type === "video_note") {
+            qVideo.src = mediaUrl;
+            qVideo.classList.remove("hidden");
+            showMedia = true;
+        } else if (media_type === "audio" || media_type === "voice") {
+            qAudio.src = mediaUrl;
+            qAudio.classList.remove("hidden");
+            showMedia = true;
+        }
+
+        if (showMedia) {
+            qMediaContainer.classList.remove("hidden");
+        }
     }
 
     // Сброс состояния
