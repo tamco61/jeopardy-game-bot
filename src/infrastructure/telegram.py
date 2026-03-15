@@ -152,6 +152,30 @@ class TelegramHttpClient:
                 async for chunk in resp.content.iter_chunked(8192):
                     await f.write(chunk)
 
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def get_file_stream(self, file_id: str):
+        """
+        Предоставляет асинхронный поток данных файла из Telegram.
+        Сначала получает file_path через getFile, затем возвращает ответ от скачивания.
+        """
+        if self._session is None or self._session.closed:
+            raise RuntimeError("HTTP-сессия не открыта. Вызовите start().")
+
+        # 1. Получаем путь к файлу
+        file_info = await self.get_file(file_id)
+        if not file_info.get("ok"):
+            raise ValueError(f"Telegram error: {file_info.get('description', 'Unknown error')}")
+
+        file_path = file_info["result"]["file_path"]
+        url = f"https://api.telegram.org/file/bot{self._bot_token}/{file_path}"
+
+        # 2. Делаем запрос на скачивание (без вычитки в память)
+        async with self._session.get(url) as resp:
+            resp.raise_for_status()
+            yield resp
+
     async def send_media(
             self,
             chat_id: int | str,

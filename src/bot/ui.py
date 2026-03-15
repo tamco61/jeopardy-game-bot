@@ -377,6 +377,8 @@ class JeopardyUI:
                 await self._broadcast_ui(room_id, "question_opened", {
                     "text": room.current_question.text,
                     "value": room.current_question.value,
+                    "media_type": room.current_question.media_type,
+                    "media_file_id": room.current_question.media_file_id,
                 })
             if room.phase == Phase.WAITING_FOR_PUSH:
                 await self._broadcast_ui(room_id, "buzzer_activated", {})
@@ -385,6 +387,8 @@ class JeopardyUI:
                 await self._broadcast_ui(room_id, "question_opened", {
                     "text": room.current_question.text,
                     "value": room.current_question.value,
+                    "media_type": room.current_question.media_type,
+                    "media_file_id": room.current_question.media_file_id,
                 })
             if room.answering_player_id:
                 player = room.players.get(room.answering_player_id)

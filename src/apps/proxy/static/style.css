@@ -352,6 +352,12 @@ button { font-family: var(--font); cursor: pointer; }
     margin-bottom: 8px;
 }
 
+.lobby-card h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
 .lobby-hint {
     font-size: 0.875rem;
     color: var(--text-muted);
@@ -552,6 +558,27 @@ button { font-family: var(--font); cursor: pointer; }
     line-height: 1.25;
     text-align: center;
     color: var(--text);
+}
+
+.q-media-container {
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: var(--shadow);
+}
+
+.q-media-container img {
+    max-width: 100%;
+    max-height: 380px;
+    border-radius: 12px;
+    object-fit: contain;
 }
 
 /* Buzzer */
