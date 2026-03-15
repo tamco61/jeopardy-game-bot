@@ -246,15 +246,19 @@ class JeopardyUI:
             chat_id: int,
             room_id: str,
             verdict_text: str,
+            player_answer: str | None = None,
             buzzer_message_id: int | None = None,
             delete_after: bool = True,
     ) -> None:
         """Объявить вердикт ведущего."""
         await self._broadcast_ui(room_id, "verdict_announced", {
             "verdict": verdict_text,
+            "player_answer": player_answer,
         })
 
         verdict_display = f"⚖️ {verdict_text}"
+        if player_answer:
+            verdict_display += f" (ответ: <i>{html.escape(player_answer)}</i>)"
         edited_successfully = False
 
         if buzzer_message_id:

@@ -408,6 +408,7 @@ class GameHandler:
         if room.phase == Phase.ANSWERING:
             verdict, target_player_id = data.verdict, data.target_player_id
             is_correct = verdict == "yes"
+            player_answer = room.player_answer
             try:
                 room.resolve_answer(target_player_id, is_correct)
                 await self._state_repo.save_room(room)
@@ -432,6 +433,7 @@ class GameHandler:
 
                 await self._ui.show_verdict(
                     room.chat_id, room_id, verdict_text,
+                    player_answer=player_answer,
                     buzzer_message_id=room.last_buzzer_message_id,
                     delete_after=is_correct,
                 )
