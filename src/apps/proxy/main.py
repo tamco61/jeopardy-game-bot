@@ -126,8 +126,8 @@ async def upload_siq_pack(
         raise HTTPException(status_code=400, detail="Только файлы с расширением .siq разрешены.")
 
     # Создаем папку для временных файлов, если её нет
-    temp_dir = Path("temp_uploads")
-    temp_dir.mkdir(exist_ok=True)
+    temp_dir = Path("data/uploads")
+    temp_dir.mkdir(parents=True, exist_ok=True)
 
     # Генерируем уникальное имя, чтобы файлы с одинаковыми названиями не перезаписали друг друга
     safe_filename = f"{uuid.uuid4().hex}_{file.filename}"

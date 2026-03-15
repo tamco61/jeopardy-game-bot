@@ -9,7 +9,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: jeopardy
+      POSTGRES_USER: ${POSTGRES_USER:-jeopardy}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-supersecret}
       POSTGRES_DB: ${POSTGRES_DB:-jeopardy_db}
     ports:
@@ -17,8 +17,9 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U jeopardy"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-jeopardy} -d $${POSTGRES_DB:-jeopardy_db}"]
       interval: 5s
+      timeout: 5s
       retries: 5
 
   redis:
@@ -26,6 +27,11 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -36,12 +42,27 @@ services:
     ports:
       - "5672:5672"    # AMQP
       - "15672:15672"  # Management UI (http://localhost:15672)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  db-migrations:
+    build: .
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    restart: "no"
 
   poller:
     build: .
     command: ["uv", "run", "python", "-m", "src.apps.poller.main"]
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     env_file: .env
     restart: unless-stopped
 
@@ -49,7 +70,8 @@ services:
     build: .
     command: ["uv", "run", "python", "-m", "src.apps.worker.main"]
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     env_file: .env
     restart: unless-stopped
 
@@ -57,37 +79,57 @@ services:
     build: .
     command: ["uv", "run", "python", "-m", "src.apps.parser.main"]
     depends_on:
-      - rabbitmq
-      - postgres
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      db-migrations:
+        condition: service_completed_successfully
     env_file: .env
+    volumes:
+      - siq-uploads:/app/data/uploads
     restart: unless-stopped
 
   core:
     build: .
     command: ["uv", "run", "python", "-m", "src.apps.core.main"]
     depends_on:
-      - postgres
-      - redis
-      - rabbitmq
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      db-migrations:
+        condition: service_completed_successfully
     env_file: .env
+    volumes:
+      - siq-uploads:/app/data/uploads
     restart: unless-stopped
 
   proxy:
     build: .
     command: ["uv", "run", "python", "-m", "src.apps.proxy.main"]
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     ports:
       - "8000:8000"
     env_file: .env
+    volumes:
+      - siq-uploads:/app/data/uploads
     restart: unless-stopped
 
   admin:
     build: .
     command: ["uv", "run", "python", "-m", "src.apps.admin.main"]
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db-migrations:
+        condition: service_completed_successfully
     ports:
       - "8001:8001"
     env_file: .env
@@ -95,3 +137,4 @@ services:
 
 volumes:
   pgdata:
+  siq-uploads:
