@@ -145,6 +145,10 @@ class TelegramHttpClient:
             "deleteMessage", {"chat_id": chat_id, "message_id": message_id}
         )
 
+    async def get_chat_administrators(self, chat_id: int | str) -> dict:
+        """Получить список администраторов чата."""
+        return await self._post("getChatAdministrators", {"chat_id": chat_id})
+
     async def get_file(self, file_id: str) -> dict:
         """Получить информацию о файле."""
         return await self._post("getFile", {"file_id": file_id})

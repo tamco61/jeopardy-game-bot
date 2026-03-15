@@ -165,6 +165,20 @@ class GameSessionRepository:
             )
             return list(result.scalars().all())
 
+    async def get_all_chat_players(self, chat_id: int) -> list[str]:
+        """Возвращает список уникальных имен всех ИЗВЕСТНЫХ Telegram-игроков в этом чате.
+        Игроки с веб-интерфейса (telegram_id == 0) не учитываются, чтобы их ники можно было занимать снова.
+        """
+        async with self._factory() as session:
+            result = await session.execute(
+                select(GamePlayerModel.username)
+                .join(GameSessionModel)
+                .where(GameSessionModel.chat_id == chat_id)
+                .where(GamePlayerModel.telegram_id > 0)
+                .distinct()
+            )
+            return [row[0] for row in result.all() if row[0]]
+
     @staticmethod
     def rebuild_room(sess: GameSessionModel) -> Room:
         """Восстанавливает объект Room из записи в БД.

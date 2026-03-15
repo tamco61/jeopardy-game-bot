@@ -42,4 +42,6 @@ class Player(BaseModel):
 
     @property
     def display_name(self) -> str:
+        if self.telegram_id == 0:
+            return self.username or self.first_name
         return f"@{self.username}" if self.username else self.first_name

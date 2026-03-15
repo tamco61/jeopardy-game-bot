@@ -142,7 +142,7 @@ class JeopardyUI:
         if room.selecting_player_id:
             try:
                 picker = room.get_player(room.selecting_player_id)
-                scoreboard += f"\n🤔 Командует @{html.escape(picker.username)}!"
+                scoreboard += f"\n🤔 Командует {html.escape(picker.display_name)}!"
             except Exception:
                 logger.warning("Не удалось получить выбирающего игрока", exc_info=True)
         return scoreboard
@@ -429,13 +429,13 @@ class JeopardyUI:
         """
         host = room.players.get(room.host_id)
         host_line = (
-            f"🎙 Ведущий: @{html.escape(host.username)}\n\n" if host else ""
+            f"🎙 Ведущий: {html.escape(host.display_name)}\n\n" if host else ""
         )
 
         lines = []
         for p in room.players.values():
             icon = "✅" if p.is_ready else "⏳"
-            lines.append(f"{icon} @{html.escape(p.username)}: {p.score}")
+            lines.append(f"{icon} {html.escape(p.display_name)}: {p.score}")
 
         players_block = "\n".join(lines) if lines else "Пока никого нет"
         text = (

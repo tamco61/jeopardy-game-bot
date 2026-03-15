@@ -21,6 +21,8 @@ from src.shared.logger import get_logger
 from src.shared.messages import WebUIUpdate
 from src.infrastructure.redis_repo import RedisStateRepository
 from src.infrastructure.telegram import TelegramHttpClient
+from src.infrastructure.database.repositories.game_session import GameSessionRepository
+from src.infrastructure.database.base import build_engine, build_session_factory
 
 logger = get_logger(__name__)
 
@@ -71,10 +73,13 @@ rabbit_channel = None
 redis_client = None
 state_repo = None
 tg_client = None
+session_repo = None
+engine = None
+session_factory = None
 
 @app.on_event("startup")
 async def startup_event():
-    global rabbit_connection, rabbit_channel, redis_client, state_repo, tg_client
+    global rabbit_connection, rabbit_channel, redis_client, state_repo, tg_client, session_repo, engine, session_factory
     logger.info("🚀 Запуск API Gateway...")
     
     try:
@@ -89,6 +94,11 @@ async def startup_event():
         # Telegram Client
         tg_client = TelegramHttpClient(settings.telegram_bot_token)
         await tg_client.start()
+
+        # Database & Session Repo
+        engine = build_engine(settings.database_url)
+        session_factory = build_session_factory(engine)
+        session_repo = GameSessionRepository(session_factory)
         
         # Очередь для получения обновлений UI от Core
         queue = await rabbit_channel.declare_queue("ui_updates", auto_delete=False)
@@ -118,6 +128,8 @@ async def shutdown_event():
         await redis_client.close()
     if tg_client:
         await tg_client.close()
+    if engine:
+        await engine.dispose()
     logger.info("👋 API Gateway остановлен.")
 
 
@@ -218,17 +230,56 @@ async def list_rooms():
     if not state_repo:
         return []
     rooms = await state_repo.get_all_rooms()
-    return [
-        {
+    
+    result = []
+    for r in rooms:
+        if r.phase == "results":
+            continue
+            
+        # Текущие игроки
+        player_names = [p.display_name for p in r.players.values()]
+        
+        # Участники чата (админы + исторические игроки)
+        chat_members = set()
+        
+        # 1. Админы (из Telegram API)
+        if tg_client:
+            try:
+                admins_res = await tg_client.get_chat_administrators(r.chat_id)
+                if admins_res.get("ok"):
+                    for member in admins_res["result"]:
+                        user = member.get("user", {})
+                        username = user.get("username")
+                        first_name = user.get("first_name", "")
+                        
+                        if username:
+                            chat_members.add(f"@{username}")
+                        elif first_name:
+                            chat_members.add(first_name)
+            except Exception as e:
+                logger.error("❌ Ошибка получения админов для чата %s: %s", r.chat_id, e)
+                
+        # 2. Исторические игроки (из БД)
+        if session_repo:
+            try:
+                hist_players = await session_repo.get_all_chat_players(r.chat_id)
+                for name in hist_players:
+                    # Исторические игроки в БД могут быть как с @, так и без
+                    chat_members.add(name)
+            except Exception as e:
+                logger.error("❌ Ошибка получения исторических игроков для чата %s: %s", r.chat_id, e)
+        
+        result.append({
             "room_id": r.room_id,
             "chat_id": r.chat_id,
             "phase": r.phase,
             "player_count": len(r.players),
-            "current_round": r.round_number
-        }
-        for r in rooms
-        if r.phase != "results"
-    ]
+            "current_round": r.round_number,
+            "player_names": player_names,
+            "chat_members": list(chat_members)
+        })
+        
+    return result
 
 @app.websocket("/ws/{room_id}/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str):

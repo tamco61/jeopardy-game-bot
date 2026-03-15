@@ -77,6 +77,8 @@ function setGamePhase(phase) {
 /* ══════════════════════════════════════════
    ЛОББИ: ЗАГРУЗКА СПИСКА КОМНАТ
 ══════════════════════════════════════════ */
+let lobbiesData = [];
+
 async function fetchLobbies() {
     lobbyList.innerHTML = `
         <div class="loader-row">
@@ -87,17 +89,18 @@ async function fetchLobbies() {
     try {
         const res = await fetch("/rooms");
         if (!res.ok) throw new Error("HTTP " + res.status);
-        const rooms = await res.json();
+        lobbiesData = await res.json();
 
         lobbyList.innerHTML = "";
-        if (rooms.length === 0) {
+        if (lobbiesData.length === 0) {
             lobbyList.innerHTML = `<div class="empty-row">Нет активных лобби. Создайте игру в Telegram!</div>`;
             return;
         }
 
-        rooms.forEach(room => {
+        lobbiesData.forEach(room => {
             const item = document.createElement("div");
             item.className = "lobby-item";
+            if (currentRoomId === room.room_id) item.classList.add("selected");
             const phase = room.phase || "—";
             item.innerHTML = `
                 <span class="lobby-room-id">${room.room_id}</span>
@@ -106,6 +109,9 @@ async function fetchLobbies() {
             item.addEventListener("click", () => selectLobby(room.room_id, item));
             lobbyList.appendChild(item);
         });
+        
+        // Перевалидируем, если список обновился
+        validateJoin();
     } catch (e) {
         lobbyList.innerHTML = `<div class="empty-row" style="color:var(--danger)">Ошибка загрузки списка комнат</div>`;
     }
@@ -120,7 +126,51 @@ function selectLobby(roomId, element) {
 
 function validateJoin() {
     playerName = playerNameInput.value.trim();
-    btnJoin.disabled = !(currentRoomId && playerName.length > 0);
+    if (!currentRoomId) {
+        btnJoin.disabled = true;
+        btnJoin.title = "Выберите комнату";
+        return;
+    }
+
+    const room = lobbiesData.find(r => r.room_id === currentRoomId);
+    if (!room) {
+        btnJoin.disabled = true;
+        return;
+    }
+
+    const nameLower = playerName.toLowerCase();
+    
+    // 1. Проверка на пустой ник
+    if (playerName.length === 0) {
+        btnJoin.disabled = true;
+        btnJoin.title = "Введите никнейм";
+        return;
+    }
+
+    // 2. Проверка по текущим игрокам (разрешаем для переподключения)
+    const isTakenByPlayer = room.player_names.some(n => n.toLowerCase() === nameLower);
+    if (isTakenByPlayer) {
+        playerNameInput.classList.remove("invalid");
+        btnJoin.disabled = false;
+        btnJoin.textContent = "Переподключиться";
+        btnJoin.title = "Вернуться в игру под этим именем";
+        return;
+    }
+
+    // 3. Проверка по участникам (админы + исторические)
+    const isTakenByMember = room.chat_members.some(n => n.toLowerCase() === nameLower || n.toLowerCase() === `@${nameLower}`);
+    if (isTakenByMember) {
+        btnJoin.disabled = true;
+        btnJoin.textContent = "Занято";
+        btnJoin.title = "Этот никнейм занят участником из Telegram";
+        playerNameInput.classList.add("invalid");
+        return;
+    }
+
+    playerNameInput.classList.remove("invalid");
+    btnJoin.disabled = false;
+    btnJoin.textContent = "Присоединиться";
+    btnJoin.title = "Присоединиться к игре";
 }
 
 playerNameInput.addEventListener("input", validateJoin);
