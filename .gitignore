@@ -176,3 +176,13 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/python
 
 .idea
+/uv.lock
+
+# AI Agents & Memory
+.cursor/
+.cursorignore
+.gemini/
+.agents/
+.agent/
+.claude/
+.aignore

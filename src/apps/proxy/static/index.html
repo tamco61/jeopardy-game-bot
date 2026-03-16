@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Своя Игра — Jeopardy Web</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="app">
+
+    <!-- ═══════════════════════════════════
+         ЭКРАН ВХОДА
+    ═══════════════════════════════════ -->
+    <div id="join-screen" class="screen">
+        <div class="glass-card">
+            <div class="logo-area">
+                <div class="logo-icon">🎮</div>
+                <h1>Своя Игра</h1>
+                <p class="subtitle">Веб-клиент для Telegram-бота</p>
+            </div>
+
+            <div class="form-group">
+                <label for="player-name">Ваш никнейм</label>
+                <input type="text" id="player-name" placeholder="Введите имя..." maxlength="15" autocomplete="off">
+            </div>
+
+            <div class="lobby-selector">
+                <div class="lobby-header">
+                    <span class="lobby-title">Активные лобби</span>
+                    <button id="btn-refresh" class="btn-icon" title="Обновить">↻</button>
+                </div>
+                <div id="lobby-list" class="lobby-list">
+                    <div class="loader-row">
+                        <div class="spinner"></div>
+                        <span>Поиск игр...</span>
+                    </div>
+                </div>
+            </div>
+
+            <button id="btn-join" class="btn-primary" disabled>Войти в игру</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════
+         ИГРОВОЙ ЭКРАН
+    ═══════════════════════════════════ -->
+    <div id="game-screen" class="screen hidden">
+
+        <!-- Шапка -->
+        <header id="game-header">
+            <div class="header-left">
+                <span class="room-badge" id="room-display">—</span>
+                <span class="round-badge" id="round-display">Раунд —</span>
+            </div>
+            <div id="scoreboard" class="scoreboard"></div>
+        </header>
+
+        <!-- ── ЛОББИ ── -->
+        <div id="lobby-view" class="lobby-view">
+            <div class="lobby-card">
+                <h2>Ожидание игроков</h2>
+                <p class="lobby-hint">Все должны нажать <strong>ГОТОВ</strong>, чтобы ведущий смог запустить игру в Telegram.</p>
+                <div id="player-list" class="player-list"></div>
+                <div class="lobby-actions">
+                    <button id="btn-ready" class="btn-ready">✓ Готов</button>
+                    <button id="btn-notready" class="btn-notready hidden">✕ Не готов</button>
+                    <button id="btn-leave" class="btn-leave">Покинуть</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── ИГРОВОЕ ПОЛЕ ── -->
+        <main id="game-container" class="hidden">
+
+            <!-- Табло вопросов -->
+            <div id="board-view" class="board-wrap"></div>
+
+            <!-- Оверлей результатов -->
+            <div id="results-view" class="results-overlay hidden">
+                <div class="results-content">
+                    <div class="results-trophy">🏆</div>
+                    <h2 class="results-title">Игра окончена!</h2>
+                    <div id="results-list" class="results-list"></div>
+                    <button id="btn-play-again" class="btn-play-again">← На главную</button>
+                </div>
+            </div>
+
+            <!-- Оверлей вопроса -->
+            <div id="question-view" class="question-overlay hidden">
+                <div class="question-content">
+                    <div id="q-value" class="q-value">0</div>
+                    <div id="q-media-container" class="q-media-container hidden">
+                        <img id="q-image" src="" alt="Question Image" class="hidden">
+                        <video id="q-video" controls class="hidden"></video>
+                        <audio id="q-audio" controls class="hidden"></audio>
+                    </div>
+                    <div id="q-text" class="q-text">Текст вопроса...</div>
+
+                    <div id="buzzer-area" class="buzzer-area">
+                        <button id="btn-buzzer" class="buzzer-btn disabled">
+                            <span class="buzzer-icon">🔔</span>
+                            <span class="buzzer-label">Нажать для ответа</span>
+                        </button>
+                    </div>
+
+                    <div id="answering-status" class="answering-status hidden">
+                        <div class="answering-name" id="answering-name"></div>
+                    </div>
+
+                    <div id="answer-input-container" class="answer-input-wrap hidden">
+                        <input type="text" id="answer-input" placeholder="Введите ответ..." autocomplete="off">
+                        <button id="btn-submit-answer" class="btn-submit">Отправить</button>
+                    </div>
+
+                    <div id="answer-status" class="answer-status hidden"></div>
+                </div>
+            </div>
+        </main>
+
+    </div>
+
+</div>
+
+<!-- Toast-уведомления -->
+<div id="toast-container"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
