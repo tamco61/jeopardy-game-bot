@@ -88,6 +88,10 @@ class LobbyJoinCallback(CallbackBase):
     prefix: ClassVar[str] = "lj"
 
 
+class LobbyPrivacyToggleCallback(CallbackBase):
+    prefix: ClassVar[str] = "lpt"
+
+
 class StartGameCallback(CallbackBase):
     prefix: ClassVar[str] = "sg"
 

@@ -6,6 +6,7 @@ import aiohttp
 from src.bot.callback import (
     LobbyLeaveCallback,
     LobbyNotReadyCallback,
+    LobbyPrivacyToggleCallback,
     LobbyReadyCallback,
     PressButtonCallback,
     SelectPackCallback,
@@ -445,8 +446,19 @@ class JeopardyUI:
             f"Нажми <b>Готов</b>, когда будешь готов к игре!"
         )
 
+        # Кнопка приватности (только для хоста)
+        privacy_row = []
+        if host and host.player_id == room.host_id:
+            privacy_icon = "🔒" if room.is_private else "🔓"
+            privacy_text = "Закрыто" if room.is_private else "Открыто"
+            privacy_row.append({
+                "text": f"{privacy_icon} {privacy_text}",
+                "callback_data": LobbyPrivacyToggleCallback().pack(),
+            })
+
         keyboard = {
             "inline_keyboard": [
+                privacy_row,  # Row with privacy toggle (only for host)
                 [
                     {
                         "text": "✅ Готов",
@@ -470,12 +482,18 @@ class JeopardyUI:
             ]
         }
 
+        # Remove empty privacy row if not host
+        if not privacy_row:
+            keyboard["inline_keyboard"] = keyboard["inline_keyboard"][1:]
+
         # Бродкастим в Web
         await self._broadcast_ui(str(room.room_id), "lobby_updated", {
             "players": [
                 {"id": p.player_id, "name": p.display_name, "is_ready": p.is_ready}
                 for p in room.players.values()
-            ]
+            ],
+            "is_private": room.is_private,
+            "host_id": room.host_id,
         })
 
         # Редактируем существующее сообщение или отправляем новое

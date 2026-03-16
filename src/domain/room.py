@@ -64,6 +64,9 @@ class Room(BaseModel):
     host_id: str = ""
     host_telegram_id: int = 0
 
+    # Приватность лобби
+    is_private: bool = False
+
     # Привязка пакета и трекинг состояния по доске
     package_id: int | None = None
     current_round_id: int | None = None

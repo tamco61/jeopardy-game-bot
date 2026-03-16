@@ -202,6 +202,9 @@ class GameSessionModel(Base):
     host_telegram_id: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True
     )
+    is_private: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     current_round_id: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )

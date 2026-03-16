@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.application.lobby_management import (
-    CreateLobbyUseCase, JoinLobbyUseCase, LeaveLobbyUseCase, ReadyUseCase,
+    CreateLobbyUseCase, JoinLobbyUseCase, LeaveLobbyUseCase, ReadyUseCase, SetLobbyPrivacyUseCase,
 )
 from src.application.press_button import PressButtonUseCase
 from src.application.select_question import SelectQuestionUseCase
@@ -154,6 +154,7 @@ async def main() -> None:
     join_lobby_uc = JoinLobbyUseCase(state_repo)
     ready_uc = ReadyUseCase(state_repo)
     leave_lobby_uc = LeaveLobbyUseCase(state_repo)
+    set_privacy_uc = SetLobbyPrivacyUseCase(state_repo)
 
     pause_uc = PauseGameUseCase(state_repo)
     unpause_uc = UnpauseGameUseCase(state_repo)
@@ -183,6 +184,7 @@ async def main() -> None:
         join_lobby_uc=join_lobby_uc,
         ready_uc=ready_uc,
         leave_lobby_uc=leave_lobby_uc,
+        set_privacy_uc=set_privacy_uc,
         state_repo=state_repo,
     )
 

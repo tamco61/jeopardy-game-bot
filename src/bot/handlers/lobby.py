@@ -4,12 +4,14 @@ from src.application.lobby_management import (
     JoinLobbyUseCase,
     LeaveLobbyUseCase,
     ReadyUseCase,
+    SetLobbyPrivacyUseCase,
 )
 import html
 from src.bot.callback import (
     LobbyJoinCallback,
     LobbyLeaveCallback,
     LobbyNotReadyCallback,
+    LobbyPrivacyToggleCallback,
     LobbyReadyCallback,
 )
 from src.bot.router import callback, command
@@ -27,6 +29,7 @@ class LobbyHandler:
         join_lobby_uc: JoinLobbyUseCase,
         ready_uc: ReadyUseCase,
         leave_lobby_uc: LeaveLobbyUseCase,
+        set_privacy_uc: SetLobbyPrivacyUseCase,
         state_repo: RedisStateRepository,
     ) -> None:
         self._ui = ui
@@ -34,6 +37,7 @@ class LobbyHandler:
         self._join_lobby = join_lobby_uc
         self._ready = ready_uc
         self._leave_lobby = leave_lobby_uc
+        self._set_privacy = set_privacy_uc
         self._state_repo = state_repo
 
     @command("/start")
@@ -166,6 +170,30 @@ class LobbyHandler:
             if room:
                 await self._update_lobby(chat_id, room)
             await self._ui.answer_callback_query(cb_id, text="Вы вошли в игру!")
+        except Exception as e:
+            await self._ui.answer_callback_query(cb_id, text=f"Ошибка: {e}", show_alert=True)
+
+    @callback(LobbyPrivacyToggleCallback)
+    async def handle_lobby_privacy_toggle(
+        self, chat_id: int, room_id: str, player_id: str, cb_id: str
+    ) -> None:
+        try:
+            room = await self._state_repo.get_room(room_id)
+            if not room:
+                await self._ui.answer_callback_query(cb_id, text="Лобби не найдено", show_alert=True)
+                return
+
+            # Toggle privacy setting
+            new_privacy = not room.is_private
+            await self._set_privacy.execute(room_id, player_id, new_privacy)
+
+            # Re-render lobby
+            room = await self._state_repo.get_room(room_id)
+            if room:
+                await self._update_lobby(chat_id, room)
+
+            status_text = "закрыто" if new_privacy else "открыто"
+            await self._ui.answer_callback_query(cb_id, text=f"Лобби теперь {status_text}")
         except Exception as e:
             await self._ui.answer_callback_query(cb_id, text=f"Ошибка: {e}", show_alert=True)
 

@@ -128,3 +128,24 @@ class LeaveLobbyUseCase:
             await self._state_repo.save_room(room)
         else:
             raise DomainError(f"Игрок {player_id} не в лобби.")
+
+
+class SetLobbyPrivacyUseCase:
+    """Установка приватности лобби (только для хоста)."""
+
+    def __init__(self, state_repo: RedisStateRepository) -> None:
+        self._state_repo = state_repo
+
+    async def execute(self, room_id: str, player_id: str, is_private: bool) -> None:
+        room = await self._state_repo.get_room(room_id)
+        if not room:
+            raise DomainError(f"Лобби {room_id} не найдено.")
+
+        if room.host_id != player_id:
+            raise DomainError("Только ведущий может изменить настройки приватности.")
+
+        if room.phase != Phase.LOBBY:
+            raise DomainError("Нельзя изменить настройки лобби после начала игры.")
+
+        room.is_private = is_private
+        await self._state_repo.save_room(room)
