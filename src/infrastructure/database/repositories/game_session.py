@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from src.domain.player import Player
-from src.domain.room import Phase, Room
+from src.domain.room import Phase, Room, GameMode
 from src.infrastructure.database.models import GamePlayerModel, GameSessionModel
 from src.shared.logger import get_logger
 
@@ -40,6 +40,8 @@ class GameSessionRepository:
                 phase=room.phase.value,
                 host_id=room.host_id or None,
                 host_telegram_id=room.host_telegram_id or None,
+                is_private=room.is_private,
+                game_mode=room.game_mode.value,
                 current_round_id=room.current_round_id,
                 current_round_name=room.current_round_name or None,
                 round_number=room.round_number,
@@ -86,6 +88,8 @@ class GameSessionRepository:
                 return
 
             model.phase = room.phase.value
+            model.is_private = room.is_private
+            model.game_mode = room.game_mode.value
             model.current_round_id = room.current_round_id
             model.current_round_name = room.current_round_name or None
             model.round_number = room.round_number
@@ -207,6 +211,8 @@ class GameSessionRepository:
             phase=Phase.BOARD_VIEW,
             host_id=sess.host_id or "",
             host_telegram_id=sess.host_telegram_id or 0,
+            is_private=sess.is_private,
+            game_mode=GameMode(sess.game_mode or "manual"),
             package_id=sess.package_id,
             current_round_id=sess.current_round_id,
             current_round_name=sess.current_round_name or "",

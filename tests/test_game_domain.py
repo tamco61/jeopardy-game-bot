@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.application.lobby_management import SetLobbyPrivacyUseCase
 from src.application.press_button import PressButtonUseCase
 from src.domain.errors import InvalidTransitionError, PlayerBlockedError
 from src.domain.player import Player
@@ -412,3 +413,90 @@ class TestPressButtonUseCase:
 
         assert result.captured is False
         mock_repo.release_button.assert_awaited_once_with("r1")
+
+
+# ────────────────────────────────────────────────────
+#  5. Lobby Privacy Tests
+# ────────────────────────────────────────────────────
+
+
+class TestLobbyPrivacy:
+    """Тесты приватности лобби."""
+
+    def test_default_lobby_is_public(self) -> None:
+        """По умолчанию лобби публичное."""
+        room = Room(room_id="r1", chat_id=100)
+        assert room.is_private is False
+
+    def test_set_lobby_private(self, lobby_room: Room) -> None:
+        """Можно установить приватность лобби."""
+        lobby_room.is_private = True
+        assert lobby_room.is_private is True
+
+    def test_toggle_lobby_privacy(self, lobby_room: Room) -> None:
+        """Можно переключать приватность лобби."""
+        lobby_room.is_private = False
+        lobby_room.is_private = not lobby_room.is_private
+        assert lobby_room.is_private is True
+
+        lobby_room.is_private = not lobby_room.is_private
+        assert lobby_room.is_private is False
+
+    @pytest.fixture
+    def mock_repo_with_room(self, lobby_room: Room) -> AsyncMock:
+        """Мок репозитория с комнатой."""
+        repo = AsyncMock()
+        repo.get_room.return_value = lobby_room
+        return repo
+
+    @pytest.mark.asyncio
+    async def test_host_can_toggle_privacy(
+        self,
+        mock_repo_with_room: AsyncMock,
+        lobby_room: Room,
+    ) -> None:
+        """Хост может менять приватность лобби."""
+        uc = SetLobbyPrivacyUseCase(mock_repo_with_room)
+        await uc.execute(room_id="r1", player_id=lobby_room.host_id, is_private=True)
+
+        assert lobby_room.is_private is True
+        mock_repo_with_room.save_room.assert_awaited_once_with(lobby_room)
+
+    @pytest.mark.asyncio
+    async def test_non_host_cannot_toggle_privacy(
+        self,
+        mock_repo_with_room: AsyncMock,
+        lobby_room: Room,
+    ) -> None:
+        """Не хост не может менять приватность."""
+        uc = SetLobbyPrivacyUseCase(mock_repo_with_room)
+
+        from src.domain.errors import DomainError
+        with pytest.raises(DomainError, match="Только ведущий"):
+            await uc.execute(room_id="r1", player_id="non_host_player", is_private=True)
+
+    @pytest.mark.asyncio
+    async def test_cannot_toggle_privacy_after_game_starts(
+        self,
+        mock_repo_with_room: AsyncMock,
+        board_room: Room,
+    ) -> None:
+        """Нельзя менять приватность после начала игры."""
+        uc = SetLobbyPrivacyUseCase(mock_repo_with_room)
+
+        from src.domain.errors import DomainError
+        with pytest.raises(DomainError, match="после начала игры"):
+            await uc.execute(room_id="r1", player_id=board_room.host_id, is_private=True)
+
+    @pytest.mark.asyncio
+    async def test_room_not_found(
+        self,
+        mock_repo_with_room: AsyncMock,
+    ) -> None:
+        """Ошибка если комната не найдена."""
+        mock_repo_with_room.get_room.return_value = None
+        uc = SetLobbyPrivacyUseCase(mock_repo_with_room)
+
+        from src.domain.errors import DomainError
+        with pytest.raises(DomainError, match="не найдено"):
+            await uc.execute(room_id="nonexistent", player_id="p1", is_private=True)

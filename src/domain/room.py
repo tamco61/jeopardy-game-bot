@@ -35,6 +35,13 @@ class Phase(str, Enum):
     PAUSE = "pause"
 
 
+class GameMode(str, Enum):
+    """Режим проверки ответов."""
+
+    AUTO = "auto"
+    MANUAL = "manual"
+
+
 class Room(BaseModel):
     """Игровая комната «Своей Игры».
 
@@ -64,6 +71,12 @@ class Room(BaseModel):
     host_id: str = ""
     host_telegram_id: int = 0
 
+    # Приватность лобби
+    is_private: bool = False
+
+    # Режим проверки ответов (auto/manual)
+    game_mode: GameMode = GameMode.MANUAL
+
     # Привязка пакета и трекинг состояния по доске
     package_id: int | None = None
     current_round_id: int | None = None
@@ -74,6 +87,7 @@ class Room(BaseModel):
     selecting_player_id: str | None = None
     last_board_message_id: int | None = None
     last_buzzer_message_id: int | None = None
+    last_verdict_message_id: int | None = None  # ID сообщения с вердиктом (для удаления)
     last_lobby_message_id: int | None = None
 
     # Текущий вопрос (заполняется при выборе с табло)

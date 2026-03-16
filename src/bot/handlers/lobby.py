@@ -4,13 +4,17 @@ from src.application.lobby_management import (
     JoinLobbyUseCase,
     LeaveLobbyUseCase,
     ReadyUseCase,
+    SetLobbyPrivacyUseCase,
+    SetGameModeUseCase,
 )
 import html
 from src.bot.callback import (
     LobbyJoinCallback,
     LobbyLeaveCallback,
     LobbyNotReadyCallback,
+    LobbyPrivacyToggleCallback,
     LobbyReadyCallback,
+    LobbyGameModeToggleCallback,
 )
 from src.bot.router import callback, command
 from src.bot.ui import JeopardyUI
@@ -27,6 +31,8 @@ class LobbyHandler:
         join_lobby_uc: JoinLobbyUseCase,
         ready_uc: ReadyUseCase,
         leave_lobby_uc: LeaveLobbyUseCase,
+        set_privacy_uc: SetLobbyPrivacyUseCase,
+        set_game_mode_uc: SetGameModeUseCase,
         state_repo: RedisStateRepository,
     ) -> None:
         self._ui = ui
@@ -34,6 +40,8 @@ class LobbyHandler:
         self._join_lobby = join_lobby_uc
         self._ready = ready_uc
         self._leave_lobby = leave_lobby_uc
+        self._set_privacy = set_privacy_uc
+        self._set_game_mode = set_game_mode_uc
         self._state_repo = state_repo
 
     @command("/start")
@@ -166,6 +174,54 @@ class LobbyHandler:
             if room:
                 await self._update_lobby(chat_id, room)
             await self._ui.answer_callback_query(cb_id, text="Вы вошли в игру!")
+        except Exception as e:
+            await self._ui.answer_callback_query(cb_id, text=f"Ошибка: {e}", show_alert=True)
+
+    @callback(LobbyPrivacyToggleCallback)
+    async def handle_lobby_privacy_toggle(
+        self, chat_id: int, room_id: str, player_id: str, cb_id: str
+    ) -> None:
+        try:
+            room = await self._state_repo.get_room(room_id)
+            if not room:
+                await self._ui.answer_callback_query(cb_id, text="Лобби не найдено", show_alert=True)
+                return
+
+            # Toggle privacy setting
+            new_privacy = not room.is_private
+            await self._set_privacy.execute(room_id, player_id, new_privacy)
+
+            # Re-render lobby
+            room = await self._state_repo.get_room(room_id)
+            if room:
+                await self._update_lobby(chat_id, room)
+
+            status_text = "закрыто" if new_privacy else "открыто"
+            await self._ui.answer_callback_query(cb_id, text=f"Лобби теперь {status_text}")
+        except Exception as e:
+            await self._ui.answer_callback_query(cb_id, text=f"Ошибка: {e}", show_alert=True)
+
+    @callback(LobbyGameModeToggleCallback)
+    async def handle_lobby_game_mode_toggle(
+        self, chat_id: int, room_id: str, player_id: str, cb_id: str
+    ) -> None:
+        try:
+            room = await self._state_repo.get_room(room_id)
+            if not room:
+                await self._ui.answer_callback_query(cb_id, text="Лобби не найдено", show_alert=True)
+                return
+
+            # Toggle game mode setting
+            new_mode = "auto" if room.game_mode.value == "manual" else "manual"
+            await self._set_game_mode.execute(room_id, player_id, new_mode)
+
+            # Re-render lobby
+            room = await self._state_repo.get_room(room_id)
+            if room:
+                await self._update_lobby(chat_id, room)
+
+            mode_text = "Авто" if new_mode == "auto" else "Ручной"
+            await self._ui.answer_callback_query(cb_id, text=f"Режим проверки: {mode_text}")
         except Exception as e:
             await self._ui.answer_callback_query(cb_id, text=f"Ошибка: {e}", show_alert=True)
 

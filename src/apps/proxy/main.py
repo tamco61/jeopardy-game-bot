@@ -226,16 +226,17 @@ async def health():
 
 @app.get("/rooms")
 async def list_rooms():
-    """Получить список активных комнат (исключая завершённые игры)."""
+    """Получить список активных комнат (исключая завершённые игры и приватные лобби)."""
     if not state_repo:
         return []
     rooms = await state_repo.get_all_rooms()
-    
+
     result = []
     for r in rooms:
-        if r.phase == "results":
+        # Пропускаем завершённые игры и приватные лобби
+        if r.phase == "results" or r.is_private:
             continue
-            
+
         # Текущие игроки
         player_names = [p.display_name for p in r.players.values()]
         
@@ -275,6 +276,7 @@ async def list_rooms():
             "phase": r.phase,
             "player_count": len(r.players),
             "current_round": r.round_number,
+            "is_private": r.is_private,
             "player_names": player_names,
             "chat_members": list(chat_members)
         })
@@ -284,12 +286,23 @@ async def list_rooms():
 @app.websocket("/ws/{room_id}/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str):
     await manager.connect(websocket, room_id)
-    
+
     if state_repo and rabbit_channel:
         try:
             room = await state_repo.get_room(room_id)
             if room:
                 already_in_room = player_id in room.players
+
+                # Block web users from joining private lobbies if they're not already in the room
+                if room.is_private and not already_in_room:
+                    logger.warning("🚫 Web user %s blocked from joining private lobby %s", player_id, room_id)
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "This lobby is private. You can only join if you're already a member."
+                    })
+                    await websocket.close()
+                    return
+
                 command = "/sync" if already_in_room else "/join"
                 event = CommandEvent(
                     source="web",

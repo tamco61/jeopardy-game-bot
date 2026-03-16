@@ -32,7 +32,7 @@ from src.bot.callback import (
     VerdictCallback,
 )
 from src.bot.ui import JeopardyUI
-from src.domain.room import Phase, Room
+from src.domain.room import Phase, Room, GameMode
 from src.infrastructure.database.repositories.game_session import (
     GameSessionRepository,
 )
@@ -41,6 +41,7 @@ from src.infrastructure.database.repositories.question import QuestionRepository
 from src.infrastructure.database.repositories.round import RoundRepository
 from src.infrastructure.database.repositories.theme import ThemeRepository
 from src.infrastructure.redis_repo import RedisStateRepository
+from src.infrastructure.llm_verifier import LlmAnswerVerifier
 from src.shared.logger import get_logger
 
 logger = get_logger(__name__)
@@ -63,6 +64,7 @@ class GameHandler:
         start_final_stake_uc: StartFinalStakeUseCase,
         place_stake_uc: PlaceStakeUseCase,
         close_final_stake_uc: CloseFinalStakeUseCase,
+        llm_verifier: LlmAnswerVerifier,
         session_repo: GameSessionRepository | None = None,
     ) -> None:
         self._ui = ui
@@ -78,6 +80,7 @@ class GameHandler:
         self._start_final_stake = start_final_stake_uc
         self._place_stake = place_stake_uc
         self._close_final_stake = close_final_stake_uc
+        self._llm_verifier = llm_verifier
         self._session_repo = session_repo
 
         # Таймеры: room_id -> Task
@@ -335,64 +338,131 @@ class GameHandler:
             room = await self._state_repo.get_room(room_id)
             if not room: return
 
+            # Проверка режима игры
+            is_auto_mode = room.game_mode == GameMode.AUTO
+
             if room.phase == Phase.ANSWERING:
                 if not room.host_telegram_id:
                     await self._ui.send_message(room.chat_id, "⚠️ Ошибка: ID ведущего не найден.")
                     return
 
-                keyboard = {
-                    "inline_keyboard": [[
-                        {"text": "✅ Верно", "callback_data": VerdictCallback(room_id=room_id, verdict="yes", target_player_id=player_id).pack()},
-                        {"text": "❌ Неверно", "callback_data": VerdictCallback(room_id=room_id, verdict="no", target_player_id=player_id).pack()}
-                    ]]
-                }
-
-                # Получаем правильный ответ, чтобы ведущему было с чем сравнивать
+                # Получаем правильный ответ
                 correct_answer_text = "Неизвестно"
                 if room.current_question:
                     q = await self._question_repo.get_question_by_id(room.current_question.question_id)
                     if q:
                         correct_answer_text = q.answer
 
-                await self._ui.send_message(
-                    chat_id=room.host_telegram_id,
-                    text=(
-                        f"Игрок {html.escape(room.players.get(player_id).display_name if room.players.get(player_id) else username)} дал ответ!\n\n"
-                        f"🔸 <b>Его ответ:</b> {html.escape(text)}\n"
-                        f"🔹 <b>Правильный ответ:</b> {html.escape(correct_answer_text)}\n\n"
-                        f"Ваш вердикт?"
-                    ),
-                    reply_markup=keyboard,
-                )
+                if is_auto_mode:
+                    # Авто-режим: проверяем через LLM
+                    notify = await self._ui.send_message(
+                        room.chat_id,
+                        f"⏳ <b>Ответ принят!</b>\n\nИгрок: {html.escape(room.players.get(player_id).display_name if room.players.get(player_id) else username)}\nОтвет: {html.escape(text)}\n\nПроверяю через ИИ..."
+                    )
+                    notify_msg_id = notify.get("result", {}).get("message_id") if notify else None
+
+                    is_correct = await self._llm_verifier.verify_answer(
+                        question_text=room.current_question.text if room.current_question else "",
+                        correct_answer=correct_answer_text,
+                        player_answer=text,
+                    )
+
+                    # Удаляем сообщение о проверке
+                    if notify_msg_id:
+                        await self._ui.delete_message(room.chat_id, notify_msg_id)
+
+                    # Автоматический вердикт
+                    verdict_data = VerdictCallback(
+                        room_id=room_id,
+                        verdict="yes" if is_correct else "no",
+                        target_player_id=player_id,
+                    )
+                    await self.handle_verdict(
+                        chat_id=room.chat_id,
+                        message_id=0,
+                        data=verdict_data,
+                        cb_id="",
+                    )
+                else:
+                    # Ручной режим: отправляем ведущему
+                    keyboard = {
+                        "inline_keyboard": [[
+                            {"text": "✅ Верно", "callback_data": VerdictCallback(room_id=room_id, verdict="yes", target_player_id=player_id).pack()},
+                            {"text": "❌ Неверно", "callback_data": VerdictCallback(room_id=room_id, verdict="no", target_player_id=player_id).pack()}
+                        ]]
+                    }
+
+                    await self._ui.send_message(
+                        chat_id=room.host_telegram_id,
+                        text=(
+                            f"Игрок {html.escape(room.players.get(player_id).display_name if room.players.get(player_id) else username)} дал ответ!\n\n"
+                            f"🔸 <b>Его ответ:</b> {html.escape(text)}\n"
+                            f"🔹 <b>Правильный ответ:</b> {html.escape(correct_answer_text)}\n\n"
+                            f"Ваш вердикт?"
+                        ),
+                        reply_markup=keyboard,
+                    )
 
             elif room.phase == Phase.FINAL_ANSWER:
                 if not room.host_telegram_id:
                     await self._ui.send_message(room.chat_id, "⚠️ Ошибка: ID ведущего не найден.")
                     return
 
-                keyboard = {
-                    "inline_keyboard": [[
-                        {"text": "✅ Верно", "callback_data": VerdictCallback(room_id=room_id, verdict="yes", target_player_id=player_id).pack()},
-                        {"text": "❌ Неверно", "callback_data": VerdictCallback(room_id=room_id, verdict="no", target_player_id=player_id).pack()}
-                    ]]
-                }
-
                 # Получаем правильный ответ для ведущего
                 correct_answer_text = room.final_question.answer if room.final_question else "???"
 
-                await self._ui.send_message(
-                    chat_id=room.host_telegram_id,
-                    text=(
-                        f"🏆 <b>ФИНАЛЬНЫЙ ОТВЕТ</b> от {html.escape(room.players.get(player_id).display_name if room.players.get(player_id) else username)}\n\n"
-                        f"🔸 <b>Его ответ:</b> {html.escape(text)}\n"
-                        f"🔹 <b>Правильный ответ:</b> {html.escape(correct_answer_text)}\n\n"
-                        f"Ваш вердикт?"
-                    ),
-                    reply_markup=keyboard,
-                )
+                if is_auto_mode:
+                    # Авто-режим: проверяем через LLM
+                    notify = await self._ui.send_message(
+                        room.chat_id,
+                        f"⏳ <b>ФИНАЛЬНЫЙ ответ принят!</b>\n\nИгрок: {html.escape(room.players.get(player_id).display_name if room.players.get(player_id) else username)}\nОтвет: {html.escape(text)}\n\nПроверяю через ИИ..."
+                    )
+                    notify_msg_id = notify.get("result", {}).get("message_id") if notify else None
 
-                if not is_private:
-                    await self._ui.send_message(room.chat_id, f"Финальный ответ от {room.players.get(player_id).display_name if room.players.get(player_id) else username} принят.")
+                    is_correct = await self._llm_verifier.verify_answer(
+                        question_text=room.final_question.text if room.final_question else "",
+                        correct_answer=correct_answer_text,
+                        player_answer=text,
+                    )
+
+                    # Удаляем сообщение о проверке
+                    if notify_msg_id:
+                        await self._ui.delete_message(room.chat_id, notify_msg_id)
+
+                    # Автоматический вердикт
+                    verdict_data = VerdictCallback(
+                        room_id=room_id,
+                        verdict="yes" if is_correct else "no",
+                        target_player_id=player_id,
+                    )
+                    await self.handle_verdict(
+                        chat_id=room.chat_id,
+                        message_id=0,
+                        data=verdict_data,
+                        cb_id="",
+                    )
+                else:
+                    # Ручной режим: отправляем ведущему
+                    keyboard = {
+                        "inline_keyboard": [[
+                            {"text": "✅ Верно", "callback_data": VerdictCallback(room_id=room_id, verdict="yes", target_player_id=player_id).pack()},
+                            {"text": "❌ Неверно", "callback_data": VerdictCallback(room_id=room_id, verdict="no", target_player_id=player_id).pack()}
+                        ]]
+                    }
+
+                    await self._ui.send_message(
+                        chat_id=room.host_telegram_id,
+                        text=(
+                            f"🏆 <b>ФИНАЛЬНЫЙ ОТВЕТ</b> от {html.escape(room.players.get(player_id).display_name if room.players.get(player_id) else username)}\n\n"
+                            f"🔸 <b>Его ответ:</b> {html.escape(text)}\n"
+                            f"🔹 <b>Правильный ответ:</b> {html.escape(correct_answer_text)}\n\n"
+                            f"Ваш вердикт?"
+                        ),
+                        reply_markup=keyboard,
+                    )
+
+                    if not is_private:
+                        await self._ui.send_message(room.chat_id, f"Финальный ответ от {room.players.get(player_id).display_name if room.players.get(player_id) else username} принят.")
 
         except (SQLAlchemyError, aioredis.RedisError) as e:
             logger.error("Ошибка при сохранении ответа: %s", e)
@@ -413,6 +483,8 @@ class GameHandler:
                 await self._state_repo.release_button(room_id)
 
                 verdict_text = "✅ Верно" if is_correct else "❌ Неверно"
+                
+                # Редактируем сообщение у ведущего (если есть)
                 if message_id > 0:
                     player = room.players.get(target_player_id)
                     display_name = player.display_name if player else username
@@ -420,16 +492,24 @@ class GameHandler:
                     await self._ui.edit_message_text(
                         chat_id=chat_id, message_id=message_id, text=new_text
                     )
-                    
+
                     host_delay = 3.0
                     asyncio.create_task(self._ui._delete_after(chat_id, message_id, delay=host_delay))
 
-                await self._ui.show_verdict(
+                # Показываем вердикт в общем чате
+                # При верном ответе — редактируем вопрос (удалится через 4 сек)
+                # При неверном — отправляем отдельное сообщение (сохраняем ID для удаления)
+                verdict_msg_id = await self._ui.show_verdict(
                     room.chat_id, room_id, verdict_text,
                     player_answer=player_answer,
-                    buzzer_message_id=room.last_buzzer_message_id,
-                    delete_after=is_correct,
+                    buzzer_message_id=room.last_buzzer_message_id if is_correct else None,
+                    delete_after=True,
                 )
+                
+                # Сохраняем ID вердикта для удаления при переходе на BOARD_VIEW
+                if verdict_msg_id:
+                    room.last_verdict_message_id = verdict_msg_id
+                    await self._state_repo.save_room(room)
 
                 # Чекпоинт: сохраняем текущее состояние в Postgres
                 if self._session_repo:
@@ -448,6 +528,11 @@ class GameHandler:
                         await self._handle_round_transition(room)
 
                 if not round_finished and room.phase == Phase.BOARD_VIEW:
+                    # Удаляем вердикт (если был) перед показом табло
+                    if room.last_verdict_message_id:
+                        await self._ui.delete_message(room.chat_id, room.last_verdict_message_id)
+                        room.last_verdict_message_id = None
+                    
                     # Сбрасываем buzzer_message_id — show_verdict уже
                     # запустил auto-delete, render_board не должен удалять его
                     room.last_buzzer_message_id = None
@@ -456,7 +541,11 @@ class GameHandler:
                 elif room.phase == Phase.WAITING_FOR_PUSH:
                     # Восстанавливаем кнопку (редактируем то же сообщение)
                     if room.last_buzzer_message_id:
-                        await self._ui.render_buzzer(room.chat_id, room_id, room.last_buzzer_message_id)
+                        await self._ui.render_buzzer(
+                            room.chat_id,
+                            room_id,
+                            room.last_buzzer_message_id,
+                        )
 
                     # Возобновляем общий таймер вопроса
                     tmr = asyncio.create_task(self._question_timeout_task(room_id, room.chat_id))
