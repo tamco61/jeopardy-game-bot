@@ -47,67 +47,62 @@ docker compose up -d
 ```
 jeopardy-game-bot/
 ├── src/
-│   ├── domain/
-│   │   ├── room.py                # Room FSM (фазы игры)
-│   │   ├── player.py              # Игрок (очки, блокировки)
-│   │   ├── question.py            # Вопрос (тип, ответ)
-│   │   └── errors.py              # Бизнес-ошибки
+│   ├── domain/                # Бизнес-логика (DDD)
+│   │   ├── room.py            # FSM комнаты и фазы игры
+│   │   ├── player.py          # Модель игрока
+│   │   ├── question.py        # Модель вопроса
+│   │   └── errors.py          # Бизнес-ошибки
 │   │
-│   ├── application/
-│   │   ├── lobby_management.py    # Create/Join/Ready/Leave
-│   │   ├── game_process.py        # Pause/Unpause
-│   │   ├── press_button.py        # Гонка на реакцию
-│   │   ├── select_question.py     # Выбор вопроса
-│   │   ├── submit_answer.py       # Отправка ответа
-│   │   ├── special_events.py      # Аукцион, финал
-│   │   ├── start_game.py          # Старт игры
-│   │   └── parser/                # Парсер SIQ
+│   ├── application/           # Cases (Сценарии использования)
+│   │   ├── lobby_management.py # Логика лобби (join/ready)
+│   │   ├── game_process.py    # Управление игровым процессом
+│   │   ├── press_button.py    # Логика нажатия на кнопку
+│   │   ├── select_question.py # Выбор вопроса
+│   │   ├── submit_answer.py   # Обработка ответов
+│   │   ├── special_events.py  # Аукционы и финал
+│   │   ├── start_game.py      # Инициализация игры
+│   │   ├── media_uploader.py  # Загрузка медиафайлов
+│   │   └── parser/            # Логика парсинга SIQ
 │   │
-│   ├── infrastructure/
-│   │   ├── database/              # PostgreSQL модели и репозитории
-│   │   ├── redis_repo.py          # Redis состояние
-│   │   ├── telegram.py            # Telegram клиент
-│   │   ├── rabbit.py              # RabbitMQ publisher
-│   │   ├── rabbit_rpc.py          # RPC Gateway
-│   │   └── llm_verifier.py        # OpenRouter API
+│   ├── infrastructure/        # Инфраструктурный слой
+│   │   ├── database/          # SQLAlchemy модели и репозитории
+│   │   │   ├── models.py      # Описание таблиц БД
+│   │   │   └── repositories/  # Репозитории (game_session, package, question, round, theme)
+│   │   ├── redis_repo.py      # Хранилище состояний в Redis
+│   │   ├── telegram.py        # Интеграция с Telegram
+│   │   ├── rabbit.py          # Работа с RabbitMQ
+│   │   ├── rabbit_rpc.py      # RPC через RabbitMQ
+│   │   └── llm_verifier.py    # Проверка ответов через AI
 │   │
-│   ├── bot/
-│   │   ├── handlers/
-│   │   │   ├── game.py            # Игровой процесс
-│   │   │   ├── lobby.py           # Лобби
-│   │   │   └── admin.py           # Админка
-│   │   ├── router.py              # Маршрутизация событий
-│   │   ├── ui.py                  # UI презентации
-│   │   └── callback.py            # Callback данные
+│   ├── bot/                   # Слой Telegram бота
+│   │   ├── handlers/          # Обработчики (admin, game, lobby)
+│   │   ├── router.py          # Роутинг событий
+│   │   ├── ui.py              # Генерация UI сообщений
+│   │   └── callback.py        # Обработка callback-кнопок
 │   │
-│   ├── apps/
-│   │   ├── core/                  # Основной бот
-│   │   ├── poller/                # Telegram poller
-│   │   ├── worker/                # Telegram worker
-│   │   ├── proxy/                 # WebSocket прокси
-│   │   ├── admin/                 # Админ панель
-│   │   └── parser/                # SIQ парсер
+│   ├── apps/                  # Микросервисы (точки входа)
+│   │   ├── core/              # Центральный сервис логики
+│   │   ├── poller/            # Получение обновлений (main, mapper)
+│   │   ├── worker/            # Воркер для тяжелых задач
+│   │   ├── proxy/             # Прокси для Web-интерфейса (+ static)
+│   │   ├── admin/             # Панель управления (+ static)
+│   │   └── parser/            # Сервис парсинга паков
 │   │
-│   ├── shared/
-│   │   ├── config.py              # Настройки
-│   │   ├── logger.py              # Логгер
-│   │   └── messages.py            # Сообщения
+│   ├── shared/                # Общие утилиты
+│   │   ├── config.py          # Настройки приложения
+│   │   ├── logger.py          # Логирование
+│   │   └── messages.py        # Текстовые константы
 │   │
-│   └── workers/
-│       ├── base.py                # Базовый воркер
-│       ├── siq_parser_worker.py   # Парсер SIQ
-│       └── telegram_sender_worker.py # Отправка сообщений
+│   └── workers/               # Реализации воркеров (base, siq, telegram)
 │
-├── tests/
-│   ├── test_game_domain.py        # Тесты домена
-│   └── test_parser.py             # Тесты парсера
-│
-├── migrations/                    # Alembic миграции
-├── docker-compose.yml
-├── Dockerfile
-├── alembic.ini
-├── pyproject.toml
-└── .env
+├── tests/                     # Тесты (test_game_domain, test_parser, verify_admin_auth)
+├── migrations/                # Миграции базы данных (Alembic)
+├── data/                      # Локальное хранилище данных (паки, медиа)
+├── docker-compose.yml         # Конфигурация Docker
+├── Dockerfile                 # Инструкции сборки
+├── alembic.ini                # Настройки миграций
+├── pyproject.toml             # Зависимости и настройки проекта
+└── .env                       # Переменные окружения
 ```
 ```
 by
