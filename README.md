@@ -109,3 +109,9 @@ jeopardy-game-bot/
 ├── pyproject.toml
 └── .env
 ```
+```
+by
+ahatovtemur@yandex.ru
+Ахатов Тимур Ильдарович
+@brnthsk
+```
