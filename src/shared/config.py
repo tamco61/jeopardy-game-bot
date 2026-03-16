@@ -32,6 +32,10 @@ class AppSettings(BaseSettings):
     admin_user: str = "admin"
     admin_password: str = "admin"
 
+    # OpenRouter API (для авто-режима проверки ответов)
+    openrouter_api_key: str = ""
+    openrouter_model: str = "openai/gpt-4o-mini"  # Модель по умолчанию
+
     @field_validator("telegram_bot_token")
     @classmethod
     def token_must_not_be_empty(cls, v: str) -> str:

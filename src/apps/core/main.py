@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from src.application.game_process import PauseGameUseCase, UnpauseGameUseCase
 from src.application.lobby_management import (
-    CreateLobbyUseCase, JoinLobbyUseCase, LeaveLobbyUseCase, ReadyUseCase, SetLobbyPrivacyUseCase,
+    CreateLobbyUseCase, JoinLobbyUseCase, LeaveLobbyUseCase, ReadyUseCase, SetLobbyPrivacyUseCase, SetGameModeUseCase,
 )
 from src.application.press_button import PressButtonUseCase
 from src.application.select_question import SelectQuestionUseCase
@@ -30,6 +30,7 @@ from src.infrastructure.database.repositories.theme import ThemeRepository
 from src.infrastructure.rabbit import RabbitMQPublisher
 from src.infrastructure.rabbit_rpc import RabbitMQMessageGateway
 from src.infrastructure.redis_repo import RedisStateRepository
+from src.infrastructure.llm_verifier import LlmAnswerVerifier
 from src.shared.config import AppSettings
 from src.shared.logger import get_logger
 from src.shared.domain_events import (
@@ -155,6 +156,7 @@ async def main() -> None:
     ready_uc = ReadyUseCase(state_repo)
     leave_lobby_uc = LeaveLobbyUseCase(state_repo)
     set_privacy_uc = SetLobbyPrivacyUseCase(state_repo)
+    set_game_mode_uc = SetGameModeUseCase(state_repo)
 
     pause_uc = PauseGameUseCase(state_repo)
     unpause_uc = UnpauseGameUseCase(state_repo)
@@ -175,6 +177,9 @@ async def main() -> None:
     start_final_stake_uc = StartFinalStakeUseCase(state_repo)
     close_final_stake_uc = CloseFinalStakeUseCase(state_repo)
 
+    # LLM Verifier (OpenRouter)
+    llm_verifier = LlmAnswerVerifier(settings)
+
     # Handlers & UI (внедряем RPC Gateway вместо TelegramHttpClient)
     ui = JeopardyUI(gateway, rabbit_publisher=rabbitmq)
 
@@ -185,6 +190,7 @@ async def main() -> None:
         ready_uc=ready_uc,
         leave_lobby_uc=leave_lobby_uc,
         set_privacy_uc=set_privacy_uc,
+        set_game_mode_uc=set_game_mode_uc,
         state_repo=state_repo,
     )
 
@@ -202,6 +208,7 @@ async def main() -> None:
         start_final_stake_uc=start_final_stake_uc,
         place_stake_uc=place_stake_uc,
         close_final_stake_uc=close_final_stake_uc,
+        llm_verifier=llm_verifier,
         session_repo=session_repo,
     )
 

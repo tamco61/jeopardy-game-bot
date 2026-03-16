@@ -149,3 +149,26 @@ class SetLobbyPrivacyUseCase:
 
         room.is_private = is_private
         await self._state_repo.save_room(room)
+
+
+class SetGameModeUseCase:
+    """Установка режима проверки ответов (auto/manual, только для хоста)."""
+
+    def __init__(self, state_repo: RedisStateRepository) -> None:
+        self._state_repo = state_repo
+
+    async def execute(self, room_id: str, player_id: str, game_mode: str) -> None:
+        from src.domain.room import GameMode
+        
+        room = await self._state_repo.get_room(room_id)
+        if not room:
+            raise DomainError(f"Лобби {room_id} не найдено.")
+
+        if room.host_id != player_id:
+            raise DomainError("Только ведущий может изменить настройки режима игры.")
+
+        if room.phase != Phase.LOBBY:
+            raise DomainError("Нельзя изменить настройки лобби после начала игры.")
+
+        room.game_mode = GameMode(game_mode)
+        await self._state_repo.save_room(room)

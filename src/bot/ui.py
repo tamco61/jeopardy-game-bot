@@ -8,6 +8,7 @@ from src.bot.callback import (
     LobbyNotReadyCallback,
     LobbyPrivacyToggleCallback,
     LobbyReadyCallback,
+    LobbyGameModeToggleCallback,
     PressButtonCallback,
     SelectPackCallback,
     SelectQuestionCallback,
@@ -446,9 +447,19 @@ class JeopardyUI:
             f"Нажми <b>Готов</b>, когда будешь готов к игре!"
         )
 
-        # Кнопка приватности (только для хоста)
+        # Кнопка приватности и режима игры (только для хоста)
+        mode_row = []
         privacy_row = []
         if host and host.player_id == room.host_id:
+            # Кнопка режима игры (Авто/Ручной)
+            mode_icon = "🤖" if room.game_mode.value == "auto" else "👤"
+            mode_text = "Авто" if room.game_mode.value == "auto" else "Ручной"
+            mode_row.append({
+                "text": f"{mode_icon} {mode_text}",
+                "callback_data": LobbyGameModeToggleCallback().pack(),
+            })
+            
+            # Кнопка приватности (Закрыто/Открыто)
             privacy_icon = "🔒" if room.is_private else "🔓"
             privacy_text = "Закрыто" if room.is_private else "Открыто"
             privacy_row.append({
@@ -458,7 +469,8 @@ class JeopardyUI:
 
         keyboard = {
             "inline_keyboard": [
-                privacy_row,  # Row with privacy toggle (only for host)
+                mode_row,       # Row with game mode toggle (only for host)
+                privacy_row,    # Row with privacy toggle (only for host)
                 [
                     {
                         "text": "✅ Готов",
@@ -482,9 +494,8 @@ class JeopardyUI:
             ]
         }
 
-        # Remove empty privacy row if not host
-        if not privacy_row:
-            keyboard["inline_keyboard"] = keyboard["inline_keyboard"][1:]
+        # Remove empty rows if not host
+        keyboard["inline_keyboard"] = [row for row in keyboard["inline_keyboard"] if row]
 
         # Бродкастим в Web
         await self._broadcast_ui(str(room.room_id), "lobby_updated", {
@@ -493,6 +504,7 @@ class JeopardyUI:
                 for p in room.players.values()
             ],
             "is_private": room.is_private,
+            "game_mode": room.game_mode.value,
             "host_id": room.host_id,
         })
 

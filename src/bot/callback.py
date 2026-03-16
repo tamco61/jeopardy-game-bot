@@ -92,6 +92,10 @@ class LobbyPrivacyToggleCallback(CallbackBase):
     prefix: ClassVar[str] = "lpt"
 
 
+class LobbyGameModeToggleCallback(CallbackBase):
+    prefix: ClassVar[str] = "lgmt"
+
+
 class StartGameCallback(CallbackBase):
     prefix: ClassVar[str] = "sg"
 

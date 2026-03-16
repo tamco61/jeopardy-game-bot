@@ -35,6 +35,13 @@ class Phase(str, Enum):
     PAUSE = "pause"
 
 
+class GameMode(str, Enum):
+    """Режим проверки ответов."""
+
+    AUTO = "auto"
+    MANUAL = "manual"
+
+
 class Room(BaseModel):
     """Игровая комната «Своей Игры».
 
@@ -66,6 +73,9 @@ class Room(BaseModel):
 
     # Приватность лобби
     is_private: bool = False
+
+    # Режим проверки ответов (auto/manual)
+    game_mode: GameMode = GameMode.MANUAL
 
     # Привязка пакета и трекинг состояния по доске
     package_id: int | None = None
