@@ -87,6 +87,7 @@ class Room(BaseModel):
     selecting_player_id: str | None = None
     last_board_message_id: int | None = None
     last_buzzer_message_id: int | None = None
+    last_verdict_message_id: int | None = None  # ID сообщения с вердиктом (для удаления)
     last_lobby_message_id: int | None = None
 
     # Текущий вопрос (заполняется при выборе с табло)

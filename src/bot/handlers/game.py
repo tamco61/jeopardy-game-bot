@@ -483,6 +483,8 @@ class GameHandler:
                 await self._state_repo.release_button(room_id)
 
                 verdict_text = "✅ Верно" if is_correct else "❌ Неверно"
+                
+                # Редактируем сообщение у ведущего (если есть)
                 if message_id > 0:
                     player = room.players.get(target_player_id)
                     display_name = player.display_name if player else username
@@ -490,16 +492,24 @@ class GameHandler:
                     await self._ui.edit_message_text(
                         chat_id=chat_id, message_id=message_id, text=new_text
                     )
-                    
+
                     host_delay = 3.0
                     asyncio.create_task(self._ui._delete_after(chat_id, message_id, delay=host_delay))
 
-                await self._ui.show_verdict(
+                # Показываем вердикт в общем чате
+                # При верном ответе — редактируем вопрос (удалится через 4 сек)
+                # При неверном — отправляем отдельное сообщение (сохраняем ID для удаления)
+                verdict_msg_id = await self._ui.show_verdict(
                     room.chat_id, room_id, verdict_text,
                     player_answer=player_answer,
-                    buzzer_message_id=room.last_buzzer_message_id,
-                    delete_after=is_correct,
+                    buzzer_message_id=room.last_buzzer_message_id if is_correct else None,
+                    delete_after=True,
                 )
+                
+                # Сохраняем ID вердикта для удаления при переходе на BOARD_VIEW
+                if verdict_msg_id:
+                    room.last_verdict_message_id = verdict_msg_id
+                    await self._state_repo.save_room(room)
 
                 # Чекпоинт: сохраняем текущее состояние в Postgres
                 if self._session_repo:
@@ -518,6 +528,11 @@ class GameHandler:
                         await self._handle_round_transition(room)
 
                 if not round_finished and room.phase == Phase.BOARD_VIEW:
+                    # Удаляем вердикт (если был) перед показом табло
+                    if room.last_verdict_message_id:
+                        await self._ui.delete_message(room.chat_id, room.last_verdict_message_id)
+                        room.last_verdict_message_id = None
+                    
                     # Сбрасываем buzzer_message_id — show_verdict уже
                     # запустил auto-delete, render_board не должен удалять его
                     room.last_buzzer_message_id = None
@@ -526,7 +541,11 @@ class GameHandler:
                 elif room.phase == Phase.WAITING_FOR_PUSH:
                     # Восстанавливаем кнопку (редактируем то же сообщение)
                     if room.last_buzzer_message_id:
-                        await self._ui.render_buzzer(room.chat_id, room_id, room.last_buzzer_message_id)
+                        await self._ui.render_buzzer(
+                            room.chat_id,
+                            room_id,
+                            room.last_buzzer_message_id,
+                        )
 
                     # Возобновляем общий таймер вопроса
                     tmr = asyncio.create_task(self._question_timeout_task(room_id, room.chat_id))

@@ -251,8 +251,12 @@ class JeopardyUI:
             player_answer: str | None = None,
             buzzer_message_id: int | None = None,
             delete_after: bool = True,
-    ) -> None:
-        """Объявить вердикт ведущего."""
+    ) -> int | None:
+        """Объявить вердикт ведущего.
+        
+        Returns:
+            ID сообщения с вердиктом или None
+        """
         await self._broadcast_ui(room_id, "verdict_announced", {
             "verdict": verdict_text,
             "player_answer": player_answer,
@@ -286,14 +290,24 @@ class JeopardyUI:
                     asyncio.create_task(
                         self._delete_after(chat_id, buzzer_message_id, delay=4.0)
                     )
+                return None  # Сообщение было отредактировано, ID не меняем
 
         # План В: Если отредактировать не удалось ИЛИ ID сообщения не было,
         # только тогда шлем отдельное временное сообщение
         if not edited_successfully:
             if delete_after:
-                await self.send_temporary(chat_id, verdict_display, delay=4.0)
+                sent = await self._tg.send_message(chat_id, verdict_display)
+                if sent and "result" in sent:
+                    msg_id = sent["result"]["message_id"]
+                    asyncio.create_task(self._delete_after(chat_id, msg_id, delay=4.0))
+                    return msg_id
             else:
-                await self.send_message(chat_id, verdict_display)
+                # Отправляем сообщение без удаления — вернём ID для последующего удаления
+                sent = await self._tg.send_message(chat_id, verdict_display)
+                if sent and "result" in sent:
+                    return sent["result"]["message_id"]
+
+        return None
 
     async def delete_message(self, chat_id: int, message_id: int) -> None:
         """Тихо удалить сообщение (игнорирует ошибки)."""
@@ -320,21 +334,27 @@ class JeopardyUI:
         except asyncio.CancelledError:
             pass
 
-    async def render_buzzer(self, chat_id: int, room_id: str, message_id: int) -> None:
-        """Активировать кнопку ответа на сообщении (без изменения текста)."""
+    async def render_buzzer(
+        self,
+        chat_id: int,
+        room_id: str,
+        message_id: int,
+    ) -> None:
+        """Активировать кнопку ответа на сообщении."""
         await self._broadcast_ui(room_id, "buzzer_activated", {})
 
         markup = {
-            "inline_keyboard": [[
-                {"text": "🟢 Ответить", "callback_data": PressButtonCallback(chat_id=chat_id).pack()}
-            ]]
+            "inline_keyboard": [[{
+                "text": "🟢 Ответить",
+                "callback_data": PressButtonCallback(chat_id=chat_id).pack()
+            }]]
         }
 
-        # Меняем ТОЛЬКО клавиатуру! Текст вопроса/картинка остаются на месте.
+        # Меняем ТОЛЬКО клавиатуру
         await self._tg.edit_message_reply_markup(
             chat_id=chat_id,
             message_id=message_id,
-            reply_markup=markup
+            reply_markup=markup,
         )
 
     async def render_answering_view(self, room_id: str, player_id: str, name: str) -> None:
