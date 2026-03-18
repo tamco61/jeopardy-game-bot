@@ -135,6 +135,18 @@ services:
     env_file: .env
     restart: unless-stopped
 
+  ngrok:
+    image: ngrok/ngrok:latest
+    restart: unless-stopped
+    command:
+      - "http"
+      - "proxy:8000"
+      - "--log=stdout"
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    depends_on:
+      - proxy
+
 volumes:
   pgdata:
   siq-uploads:
